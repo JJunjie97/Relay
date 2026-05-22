@@ -36,57 +36,38 @@ class TestCtrl:
         self._stopEvent.set()
         self._startLock = asyncio.Lock()
         
-        self._preloadZeroCalibration()
+        self._initBaseNode()
 
-    def _preloadZeroCalibration(self):
-        baseline_dict = {}
-        for ch_idx in range(12):  # Only V channels (0, 2, 4, 6, 8, 10) and I channels (1, 3, 5, 7, 9, 11)
-            hw_ch = HWConfig.MapChannel(ch_idx)
-            dc_amp_reg, freq_reg = calib.PhysToReg(hw_ch, 0, 0.0, 50.0)
-            baseline_dict[hw_ch] = {
-                0: [dc_amp_reg, freq_reg]  # Only calibrate layer 0 (DC static bias / frequency)
-            }
-        
-        calib_frames = self._compileDictToFrames(baseline_dict, HWCodec.DDS_WR_SHADOW)
-        n0 = self.engine.nodes.get(0x0000)
-        if n0:
-            n0.baseFrame = [
-                HWCodec.FRAME_SYS_RESET,
-                HWCodec.BuildSystemFrame(HWCodec.SYS_SET_DBNC, 61)
-            ] + calib_frames + [
-                HWCodec.FRAME_SYS_START
-            ]
-            logger.info(f"Preloaded 12-channel zero calibration frames into Node 0x0000 (total {len(calib_frames)} frames)")
-
-    # ── Engine event callback (injected as emitEvent) ──
+    def _initBaseNode(self):
+        baselineDict = {hwCh: {0: list(calib.PhysToReg(hwCh, 0, 0.0, 50.0))} for hwCh in HWConfig.V_CHANNELS + HWConfig.I_CHANNELS}
+        self.engine.nodes[0x0000].baseFrame = [
+            HWCodec.FRAME_SYS_RESET
+        ] + self._compileDictToFrames(baselineDict, HWCodec.DDS_WR_SHADOW) + [
+            HWCodec.FRAME_SYS_START,
+            HWCodec.BuildSystemFrame(HWCodec.SYS_SET_DBNC, 61)
+        ]
+        logger.info("Initialized base node 0x0000 with 12-channel calibration")
 
     async def onEvent(self, evt):
-        code = evt[0]
-
-        if code == 0:  # VALUE_UPDATE
-            nodeId, tick, ts = evt[1], evt[2], evt[3]
-            if nodeId == 0xFFFF and self.running:
-                if self.engine.trigTarget == 0x0000 or self.engine.nodeId == 0x0000:
+        match evt[0]:
+            case 0:
+                nodeId, tick, ts = evt[1], evt[2], evt[3]
+                if nodeId == 0xFFFF and self.running:
+                    self.errorReason = self.errorReason or self.engine.errorReason
+                    self.engine.errorReason = None
+                    self._doStop()
                     return
-                self.errorReason = self.errorReason or self.engine.errorReason
-                self.engine.errorReason = None
-                self._doStop()
-                return
-            
-            self._handleValueUpdate(nodeId, tick)
-
-            if self.activeApi and self.activeApi.isActive:
-                self.activeApi.onUpdate(nodeId, tick, ts)
-
-        elif code == 1:  # DI_CHANGE
-            self.di = evt[1]
-            self.sendDi()
-            if self.activeApi and self.activeApi.isActive:
-                self.activeApi.onDi(evt[1], evt[2])
-
-        elif code == 2:  # DO_CHANGE
-            self.do = evt[1]
-            self.sendDo()
+                self._handleValueUpdate(nodeId, tick)
+                if self.activeApi:
+                    self.activeApi.onUpdate(nodeId, tick, ts)
+            case 1:
+                self.di = evt[1]
+                self.sendDi()
+                if self.activeApi:
+                    self.activeApi.onDi(evt[1], evt[2])
+            case 2:
+                self.do = evt[1]
+                self.sendDo()
 
     # ── Lifecycle ──
 
@@ -249,17 +230,17 @@ class TestCtrl:
         # Guard zero-calibration & SYS_START prefix for Node 0 to prevent dry-flatline hardware output
         # If compiling Node 0, we retrieve the preloaded hardware reset, debounce, and calibration frames
         # and append the API's custom static registers, finalized by a guaranteed SYS_START.
-        is_node_0 = False
-        for nid, node_data in self.nodes.items():
-            if node_data is n and nid == 0:
-                is_node_0 = True
+        isNode0 = False
+        for nid, nodeData in self.nodes.items():
+            if nodeData is n and nid == 0:
+                isNode0 = True
                 break
                 
-        if is_node_0:
-            existing_n0 = self.engine.nodes.get(0x0000)
-            if existing_n0 and existing_n0.baseFrame:
+        if isNode0:
+            existingN0 = self.engine.nodes.get(0x0000)
+            if existingN0 and existingN0.baseFrame:
                 prefix = []
-                for f in existing_n0.baseFrame:
+                for f in existingN0.baseFrame:
                     if f != HWCodec.FRAME_SYS_START:
                         prefix.append(f)
                 baseFrame = prefix + baseFrame + [HWCodec.FRAME_SYS_START]

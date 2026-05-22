@@ -69,7 +69,7 @@ class USEEngine:
 
     def setDebounce(self, dbnc: int):
         self.dbncUs = int(dbnc * 327.68)
-        self.nodes[0x0000].baseFrame[1] = HWCodec.BuildSystemFrame(HWCodec.SYS_SET_DBNC, dbnc)
+        self.nodes[0x0000].baseFrame[-1] = HWCodec.BuildSystemFrame(HWCodec.SYS_SET_DBNC, dbnc)
 
     def upsertNodes(self, newNodes: dict):
         self.nodes.update(newNodes)
