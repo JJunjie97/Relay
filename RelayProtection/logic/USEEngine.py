@@ -26,10 +26,6 @@ class USENode:
     timeoutId: Optional[int] = None
 
 class USEEngine:
-    # emitEvent codes:
-    # 0: VALUE_UPDATE  [0, nodeId, tick, timestamp]
-    # 1: DI_CHANGE     [1, diMask, timestamp]
-    # 2: DO_CHANGE     [2, doMask, timestamp]
     def __init__(self, hwGateway, emitEvent):
         self._emit = emitEvent
         self._spawn = asyncio.create_task
@@ -67,7 +63,6 @@ class USEEngine:
         self.errorReason = None
         self.upFrame = [HWCodec.FRAME_SYS_UPDATE]
         self.syncFrame = [HWCodec.FRAME_SYS_SYNC]
-
 
     def start(self):
         self._spawn(self.coreLoop())
@@ -132,6 +127,10 @@ class USEEngine:
     async def setDo(self, doValue: int) -> int:
         return await self.flush([HWCodec.BuildSystemFrame(HWCodec.SYS_SET_DO, doValue)])
 
+    # emitEvent codes:
+    # 0: VALUE_UPDATE  [0, nodeId, tick, timestamp]
+    # 1: DI_CHANGE     [1, diMask, timestamp]
+    # 2: DO_CHANGE     [2, doMask, timestamp]
     def _emitUp(self, tick: int, tUp: int):
         self._spawn(self._emit([0, self.nodeId, tick, tUp]))
 
