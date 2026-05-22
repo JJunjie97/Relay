@@ -124,6 +124,9 @@ class ApiSweepTest(BaseApi):
         # Dispatch nodes to engine FSM
         self.ctrl.upsertNodes(nodesToUpload)
         
+        # Trigger the starting node (Node 1)
+        self.ctrl.trigNode(1)
+        
     def _buildReturnNode(self) -> ApiNodeData:
         """Dynamically build the reverse sweep node from the latest peak tick."""
         peak_phys = self._physicsAt(self._peakTick)
@@ -179,9 +182,6 @@ class ApiSweepTest(BaseApi):
     def onUpdate(self, nodeId: int, tick: int, hw_ts: int):
         """Called by Engine FSM to sync real-time telemetry."""
         if nodeId == 0x0000:
-            # Engine initialization complete; kick off the test workflow.
-            startId = 1 if self.enablePreTestReset else 1
-            self.ctrl.trigNode(startId)
             return
             
         if nodeId == self._actionId:

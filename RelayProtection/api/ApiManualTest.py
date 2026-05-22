@@ -30,17 +30,7 @@ class ApiManualTest(BaseApi):
         # key = hw_ch (0-15), val = Dict[hardware_layer (255, 0..63), [p1, p2]]
         self._sim_reset()
         
-        # Setup engine preloaded baseline node for 0x0000
-        nodes = {}
-        n0 = ApiNodeData(mode=1)
-        n0.base = {}
-        for ch_idx in range(12):
-            hw_ch, layers = self.buildChannelReg(ch_idx, 0.0, 0.0, 50.0)
-            n0.base[hw_ch] = layers
-            
-        self.fillMissingChannels(n0.base, 50.0)
-        nodes[0x0000] = n0
-        self.ctrl.upsertNodes(nodes)
+        # Zero calibration and system reset/start is preloaded in TestCtrl._preloadZeroCalibration.
         
         logger.info("Manual test baseline preloaded. Triggering initial buffer sync...")
         # Dispatch initial buffers to front-end asynchronously to ensure WS client is ready

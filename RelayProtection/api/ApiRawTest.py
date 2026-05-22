@@ -39,6 +39,8 @@ class ApiRawTest(BaseApi):
 
         # Store for external triggering after engine settles
         self._startNode = params.get("startNode", None)
+        if self._startNode is not None:
+            self.ctrl.trigNode(self._startNode)
 
     def _onStop(self):
         pass

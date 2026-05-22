@@ -73,13 +73,13 @@ class TestCtrl:
             
             self._handleValueUpdate(nodeId, tick)
 
-            if self.activeApi:
+            if self.activeApi and self.activeApi.isActive:
                 self.activeApi.onUpdate(nodeId, tick, ts)
 
         elif code == 1:  # DI_CHANGE
             self.di = evt[1]
             self.sendDi()
-            if self.activeApi:
+            if self.activeApi and self.activeApi.isActive:
                 self.activeApi.onDi(evt[1], evt[2])
 
         elif code == 2:  # DO_CHANGE
@@ -110,10 +110,12 @@ class TestCtrl:
                 
             self.running = True
             self.stopping = False
-            self.activeApi.setup(self, msg.get("params", {}))
-
             self.setAmplifier(True)
             self.engine.manualTrig(0x0000)
+
+            await asyncio.sleep(0.1)
+
+            self.activeApi.setup(self, msg.get("params", {}))
 
     def stopTest(self, reason: str = None):
         if not self.running or self.stopping:
