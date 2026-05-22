@@ -76,10 +76,6 @@ class USEEngine:
         self.dbncUs = int(dbnc * 327.68)
         self.nodes[0x0000].baseFrame[1] = HWCodec.BuildSystemFrame(HWCodec.SYS_SET_DBNC, dbnc)
 
-    def manualTrig(self, targetId: int):
-        self.trigTarget = targetId
-        self.triggerEvent.set()
-
     def upsertNodes(self, newNodes: dict):
         self.nodes.update(newNodes)
 
@@ -94,7 +90,7 @@ class USEEngine:
         else:
             self.diNow = statusCode & 0xFF
             self.triggerEvent.set()
-            self._spawn(self._emit([1, self.diNow, timestamp - self.dbncUs]))
+            self._emitDi(self.diNow, timestamp - self.dbncUs)
 
     def flushNoAck(self, frames: List[bytes]):
         send = self._send
@@ -112,8 +108,6 @@ class USEEngine:
     async def waitForAck(self, target: int) -> int:
         while self.ackCounter < target:
             self.ackEvent.clear()
-            if self.ackCounter >= target:
-                break
             try:
                 await asyncio.wait_for(self.ackEvent.wait(), timeout=0.1)
             except asyncio.TimeoutError:
@@ -126,9 +120,6 @@ class USEEngine:
                 return -1
         return self.ackTs
 
-    async def setDo(self, doValue: int) -> int:
-        return await self.flush([HWCodec.BuildSystemFrame(HWCodec.SYS_SET_DO, doValue)])
-
     def spawnDo(self, t0: float):
         if not self.node.doActions: return
         self._doTask = self._spawn(self._doLoop(t0))
@@ -136,23 +127,37 @@ class USEEngine:
     async def _doLoop(self, t0: float):
         for packed in self.node.doActions:
             await asyncio.sleep(t0 + (((packed >> 8) & 0xFFFF) / 1000.0) - time.perf_counter())
-            doTs = await asyncio.shield(self.setDo(packed & 0xFF))
-            self._spawn(self._emit([2, packed & 0xFF, doTs]))
+            self._emitDo(packed & 0xFF, await asyncio.shield(self.setDo(packed & 0xFF)))
 
-
+    async def setDo(self, doValue: int) -> int:
+        return await self.flush([HWCodec.BuildSystemFrame(HWCodec.SYS_SET_DO, doValue)])
 
     def _emitUp(self, tick: int, tUp: int):
         self._spawn(self._emit([0, self.nodeId, tick, tUp]))
 
-    def _consumeManualTrig(self) -> Optional[int]:
+    def _emitDo(self, doValue: int, timestamp: int):
+        self._spawn(self._emit([2, doValue, timestamp]))
+
+    def _emitDi(self, diValue: int, timestamp: int):
+        self._spawn(self._emit([1, diValue, timestamp]))
+
+    def startTimeout(self, t: float):
+        self._timeoutAt = t + self._timeoutS if self._timeoutS else None
+
+    async def sleepForever(self, t: float) -> int:
+        return r if (r := await self.sleep(t + 1000)) is not None else 0xFFFF
+
+    def manualTrig(self, targetId: int):
+        self.trigTarget = targetId
+
+    def _popManualTrig(self) -> Optional[int]:
         if (tgt := self.trigTarget) is not None:
             self.trigTarget = None
-            self.triggerEvent.clear()
             return tgt
         return None
 
     def _evalTrig(self) -> Optional[int]:
-        if (tgt := self._consumeManualTrig()) is not None: return tgt
+        if (tgt := self._popManualTrig()) is not None: return tgt
         if self._timeoutAt is not None and time.perf_counter() >= self._timeoutAt:
             return self._timeoutId
         if self._diMask:
@@ -162,32 +167,24 @@ class USEEngine:
         return None
 
     async def sleepWait(self, wake: float) -> Optional[int]:
-        while True:
-            if (tgt := self._consumeManualTrig()) is not None: return tgt
-            if (remain := wake - time.perf_counter()) <= 0.005:
-                await asyncio.sleep(0)
-                while time.perf_counter() < wake: pass
-                return self._consumeManualTrig()
+        while (remain := wake - time.perf_counter()) > 0.005:
+            if (tgt := self._popManualTrig()) is not None: return tgt
             await asyncio.sleep(min(remain, 0.025))
+        await asyncio.sleep(0)
+        while time.perf_counter() < wake: pass
+        return self._popManualTrig()
 
     async def sleep(self, wake: float) -> Optional[int]:
         if self._timeoutAt is not None and self._timeoutAt < wake:
             wake = self._timeoutAt
-        while True:
-            if (r := self._evalTrig()) is not None: return r
-            if (remain := wake - time.perf_counter()) <= 0.005:
-                await asyncio.sleep(0)
-                while time.perf_counter() < wake: pass
-                return self._evalTrig()
+        while (remain := wake - time.perf_counter()) > 0.005:
             self.triggerEvent.clear()
+            if (r := self._evalTrig()) is not None: return r
             try: await asyncio.wait_for(self.triggerEvent.wait(), timeout=min(remain, 0.025))
             except asyncio.TimeoutError: pass
-
-    def startTimeout(self, t: float):
-        self._timeoutAt = t + self._timeoutS if self._timeoutS else None
-
-    async def sleepForever(self, t: float) -> int:
-        return r if (r := await self.sleep(t + 1000)) is not None else 0xFFFF
+        await asyncio.sleep(0)
+        while time.perf_counter() < wake: pass
+        return self._evalTrig()
 
     async def runStatic(self) -> int:
         self._emitUp(0, await self.flush(self.node.baseFrame + self.upFrame))
@@ -226,24 +223,24 @@ class USEEngine:
 
         self._emitUp(-1, await self.flush(self.node.baseFrame + self.node.resetFrame + self.upFrame))
         t = time.perf_counter()
-        await self.setDo(enterDo)
+        self._emitDo(enterDo, await self.setDo(enterDo))
         await self.flush(self.node.baseFrame)
         self.startTimeout(t)
         # self.spawnDo(t)
         if (r := await self.sleepWait(t := t + rt)) is not None: return r
 
         self._emitUp(0, await self.flush(self.upFrame))
-        await self.setDo(exitDo)
+        self._emitDo(exitDo, await self.setDo(exitDo))
         if (r := await self.sleep(t := t + iv)) is not None: return r
 
         for tick in range(1, count + 1):
             self._emitUp(-1, await self.flush(self.upFrame))
-            await self.setDo(enterDo)
+            self._emitDo(enterDo, await self.setDo(enterDo))
             await self.flush(self.node.stepFrames[tick-1])
             if (r := await self.sleepWait(t := t + rt)) is not None: return r
 
             self._emitUp(tick, await self.flush(self.upFrame))
-            await self.setDo(exitDo)
+            self._emitDo(exitDo, await self.setDo(exitDo))
             if (r := await self.sleep(t := t + iv)) is not None: return r
 
         if self.node.countOverId is not None:
@@ -296,6 +293,8 @@ class USEEngine:
                 self._doTask.cancel()
                 self._doTask = None
 
+            self.triggerEvent.clear()
+
             await self.flush(self.syncFrame)
 
             self.diPrev = self.diNow
@@ -322,7 +321,7 @@ class USEEngine:
                 case _: nextId = 0xFFFF
 
             if self.nodeId == 0x0000: self.diStart = self.diNow
-            if nextId == 0xFFFF and self.nodeId != 0xFFFF:
+            if nextId in (0x0000, 0xFFFF):
                 self.nodes = {0x0000: self.nodes[0x0000], 0xFFFF: self.nodes[0xFFFF]}
                 self.ackCounter = 0
                 self.sentCount = 0
