@@ -5,6 +5,17 @@ import pickle
 import time
 from typing import List, Optional
 
+# Linux-level orphan process prevention: auto kill self with SIGKILL when parent process dies
+try:
+    import ctypes
+    import signal
+    # PR_SET_PDEATHSIG = 1
+    libc = ctypes.CDLL("libc.so.6")
+    libc.prctl(1, signal.SIGKILL)
+except Exception:
+    pass
+
+
 # Set Core 3 Affinity
 try:
     os.sched_setaffinity(0, {3})
@@ -106,7 +117,7 @@ async def handle_client(reader, writer):
         sys.exit(0)
 
 async def main():
-    server = await asyncio.start_server(handle_client, '127.0.0.1', 8081)
+    server = await asyncio.start_server(handle_client, '127.0.0.1', 8081, reuse_port=True)
     print("[HwEngine] IPC server listening on 127.0.0.1:8081...")
     async with server:
         await server.serve_forever()

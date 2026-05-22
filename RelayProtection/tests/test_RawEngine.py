@@ -215,6 +215,8 @@ async def test_static(engine, ctrl):
     engine.manualTrig(2)      # Jump to target waveform node
     print("\n>>> Outputting for 5 seconds. Check ch0 on oscilloscope...")
     await asyncio.sleep(5.5)
+    ctrl.stopTest()
+    await asyncio.sleep(0.2)
     print(">>> Static test done.\n")
 
 
@@ -248,9 +250,7 @@ async def test_sweep(engine, ctrl):
     }
 
     await ctrl.startTest(payload)
-    await asyncio.sleep(0.3)
-    engine.manualTrig(1)
-    print("\n>>> Sweeping for 3 seconds. Watch ch0 amplitude increase...")
+    print("\n>>> Sweeping for 3.5 seconds. Watch ch0 amplitude increase...")
     await asyncio.sleep(3.5)
     print(">>> Sweep test done.\n")
 
@@ -263,7 +263,7 @@ async def test_reset(engine, ctrl):
 
     base = make_full_base([(0, 10, 0.0)])
     reset_base = make_full_base([(0, 0, 0.0)])
-    step = make_step_reg(0, 10.0)
+    step = make_step_reg(0, 0.1)
 
     payload = {
         "module": "raw_test",
@@ -274,9 +274,9 @@ async def test_reset(engine, ctrl):
                     "mode": 3,
                     "base": base,
                     "reset": reset_base,
-                    "steps": [step] * 5,
-                    "interval": 500,
-                    "resetTime": 200,
+                    "steps": [step] * 500,
+                    "interval": 5,
+                    "resetTime": 5,
                     "resetDo": 0x0000,  # enterDo=0x00, exitDo=0x00
                     "countOverId": 0xFFFF,
                 }
@@ -285,11 +285,51 @@ async def test_reset(engine, ctrl):
     }
 
     await ctrl.startTest(payload)
-    await asyncio.sleep(0.3)
-    engine.manualTrig(2)
-    print("\n>>> Reset sweep for 5 seconds. Watch ch0 step with reset pauses...")
+    print("\n>>> Reset sweep for 5.5 seconds. Watch ch0 step with reset pauses...")
     await asyncio.sleep(5.5)
     print(">>> Reset sweep test done.\n")
+
+
+async def test_custom_sweep_2nodes(engine, ctrl):
+    """Custom Case: Two-node Sweep — Node 1 sweeps forward 10 steps, then triggers Node 2 to sweep reverse 10 steps."""
+    print("\n" + "=" * 60)
+    print("  TEST: Custom 2-Node Sweep — ch0 = 10V→110V fwd (10 steps), then 110V→10V rev (10 steps)")
+    print("=" * 60)
+
+    base_fwd = make_full_base([(0, 10.0, 0.0)])
+    step_fwd = make_step_reg(0, 10.0)
+
+    # 10 steps forward, target peak is 110.0V (10 + 10 * 10)
+    base_rev = make_full_base([(0, 110.0, 0.0)])
+    step_rev = make_step_reg(0, -10.0)
+
+    payload = {
+        "module": "raw_test",
+        "params": {
+            "startNode": 1,
+            "nodes": {
+                "1": {
+                    "mode": 2,
+                    "base": base_fwd,
+                    "steps": [step_fwd] * 10,
+                    "interval": 500,
+                    "countOverId": 2,
+                },
+                "2": {
+                    "mode": 2,
+                    "base": base_rev,
+                    "steps": [step_rev] * 10,
+                    "interval": 500,
+                    "countOverId": 0xFFFF,
+                }
+            }
+        }
+    }
+
+    await ctrl.startTest(payload)
+    print("\n>>> Custom 2-Node Sweeping forward (5s) then reverse (5s)...")
+    await asyncio.sleep(11.0)
+    print(">>> Custom 2-Node Sweep test done.\n")
 
 
 # ── Main ──
@@ -299,21 +339,30 @@ async def main():
 
     engine, ctrl = await setup_engine()
 
-    if mode == "static":
-        await test_static(engine, ctrl)
-    elif mode == "sweep":
-        await test_sweep(engine, ctrl)
-    elif mode == "reset":
-        await test_reset(engine, ctrl)
-    elif mode == "all":
-        # await test_sweep(engine, ctrl)
-        # await asyncio.sleep(1.0)
-        # await test_static(engine, ctrl)
-        # await asyncio.sleep(1.0)
-        await test_reset(engine, ctrl)
-    else:
-        print(f"Unknown mode: {mode}")
-        print("Usage: python test_RawEngine.py [static|sweep|reset|all]")
+    try:
+        if mode == "static":
+            await test_static(engine, ctrl)
+        elif mode == "sweep":
+            await test_sweep(engine, ctrl)
+        elif mode == "reset":
+            await test_reset(engine, ctrl)
+        elif mode == "custom":
+            await test_custom_sweep_2nodes(engine, ctrl)
+        elif mode == "all":
+            await test_custom_sweep_2nodes(engine, ctrl)
+            await asyncio.sleep(1.0)
+            await test_sweep(engine, ctrl)
+            await asyncio.sleep(1.0)
+            await test_static(engine, ctrl)
+            await asyncio.sleep(1.0)
+            await test_reset(engine, ctrl)
+        else:
+            print(f"Unknown mode: {mode}")
+            print("Usage: python test_RawEngine.py [static|sweep|reset|custom|all]")
+    finally:
+        print("Cleaning up: stopping engine and turning off amplifier...")
+        ctrl.stopTest()
+        await asyncio.sleep(0.2)
 
 
 if __name__ == "__main__":

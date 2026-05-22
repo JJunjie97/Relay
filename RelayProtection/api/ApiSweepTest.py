@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from typing import Dict, Any
 
 from api.BaseApi import BaseApi, ApiNodeData
@@ -43,10 +44,10 @@ class ApiSweepTest(BaseApi):
         self._lastValueTs = 0
         self._lastDi = 0
         
-        # Assign Node IDs to avoid system reserved 0x0000 and 0xFFFF
-        self._actionId = 2 if self.enablePreTestReset else 1
-        self._returnId = self._actionId + 2  # Node 4 (Node 3 is Hold Node)
-        self._holdId = self._actionId + 1    # Node 3
+        # Assign Node IDs: 1 for Action, 2 for Hold, 3 for Return
+        self._actionId = 1
+        self._holdId = 2
+        self._returnId = 3
 
         # Ensure all stepped channels exist in statics for reporting and base values
         for ch_str, layers in self.steps.items():
@@ -71,66 +72,80 @@ class ApiSweepTest(BaseApi):
         self._reg_steps_rev = self.physDictToReg(steps_rev_phys, is_delta=True)
         self._reg_reset = reg_reset
         
-        nodesToUpload = {}
-        
-        # Node 1: Pre-test reset (if enabled)
-        if self.enablePreTestReset:
-            n1 = ApiNodeData(mode=1)
-            n1.base = reg_reset
-            n1.timeoutMs = self.preTestResetTime
-            n1.timeoutId = self._actionId
-            n1.doActions = [(0 << 8) | (self.doMask & 0xFF)] if self.doMask else []
-            nodesToUpload[1] = n1
-            
-        # Node 2: Forward sweep (action phase)
-        n2 = ApiNodeData(mode=3 if self.enableStepReset else 2)
-        n2.base = reg_statics
-        # Python list multiplication generates references, extremely memory-efficient
-        n2.steps = [reg_steps_fwd] * self.count
-        n2.interval = self.stepTime
-        n2.doActions = [] if self.enableStepReset else ([(0 << 8) | (self.doCtrlMask & 0xFF)] if self.doCtrlMask else [])
+        # Node 1: Forward sweep (action phase)
+        n1 = ApiNodeData(mode=3 if self.enableStepReset else 2)
+        n1.base = reg_statics
+        n1.steps = [reg_steps_fwd] * self.count
+        n1.interval = self.stepTime
+        n1.doActions = [] if self.enableStepReset else ([(0 << 8) | (self.doCtrlMask & 0xFF)] if self.doCtrlMask else [])
         
         if self.enableStepReset:
-            n2.resetTime = self.stepResetTime
-            n2.reset = reg_reset
-            # 16-bit resetDo: exitDo (doCtrlMask) << 8 | enterDo (doMask)
-            n2.resetDo = (self.doMask & 0xFF) | ((self.doCtrlMask & 0xFF) << 8)
+            n1.resetTime = self.stepResetTime
+            n1.reset = reg_reset
+            n1.resetDo = (self.doMask & 0xFF) | ((self.doCtrlMask & 0xFF) << 8)
             
-        if self.returnMode == 0:
-            # Trip & Stop: Trigger targets the Hold node (or Stop)
-            tgt = self._holdId if self.changeMode in (1, 2) else 0xFFFF
-            n2.diMatchMask = self.logicMask
-            n2.diMatchId = tgt
-            n2.countOverId = tgt
+        # 无论 returnMode 统一进入 Node 2 中转（如果有反向扫频的话）
+        if self.changeMode in (1, 2):
+            tgt = self._holdId
         else:
-            # Full Sweep: Ignore triggers, always run full count
-            tgt = self._returnId if self.changeMode in (1, 2) else 0xFFFF
-            n2.countOverId = tgt
+            tgt = 0xFFFF
             
-        nodesToUpload[self._actionId] = n2
+        n1.diMatchMask = self.logicMask
+        n1.diMatchId = tgt
+        n1.countOverId = tgt
         
-        # Node 3: Pre-load the Hold Node (to solve FSM race condition upon tripping)
-        if self.changeMode in (1, 2) and self.returnMode == 0:
-            n3 = ApiNodeData(mode=1)
-            n3.base = {}  # Empty baseFrame implies HWCodec.FRAME_SYS_UPDATE only -> perfect latch!
-            nodesToUpload[self._holdId] = n3
+        # Configure Node 0
+        n0 = ApiNodeData(mode=1)
+        n0.base = reg_statics
+        
+        self._actionNode = n1
+        self._holdNode = None
+        if self.changeMode in (1, 2):
+            self._holdNode = ApiNodeData(mode=1)
+            self._holdNode.base = {}  # Empty baseFrame implies HWCodec.FRAME_SYS_UPDATE only -> perfect latch!
             
-        # Node 4: Pre-load Return Node (only if full sweep is guaranteed)
-        if self.changeMode in (1, 2) and self.returnMode == 1:
-            self._peakTick = self.count
-            n4 = self._buildReturnNode()
-            nodesToUpload[self._returnId] = n4
-
-        # Dispatch nodes to engine FSM
+        self._returnNode = None
+        self._fsmState = "WAIT_NODE_0"
+        
+        # 1. Configure and transition to Node 0 (static initial mode with reg_statics)
+        # We upload Node 0 alone first because the Engine automatically purges all other 
+        # nodes from its cache upon transitioning to Node 0.
+        self.ctrl.upsertNodes({0: n0})
+        self.ctrl.trigNode(0)
+        
+    async def _preheatAndStart(self):
+        """Perform 500ms preheat inside Node 0 to allow DDS registers to stabilize flatly at 10V before launching sweeps."""
+        logger.info("[ApiSweepTest] Entering 500ms Node 0 stable preheat...")
+        await asyncio.sleep(0.5)
+        
+        if not self.isActive:
+            logger.warning("[ApiSweepTest] Setup cancelled because API was stopped during preheat.")
+            return
+            
+        self._fsmState = "RUNNING"
+        logger.info("[ApiSweepTest] Preheat completed. Uploading Node 1 and Node 2.")
+        
+        nodesToUpload = {self._actionId: self._actionNode}
+        if self._holdNode:
+            nodesToUpload[self._holdId] = self._holdNode
         self.ctrl.upsertNodes(nodesToUpload)
         
-        # Trigger the starting node (Node 1)
-        self.ctrl.trigNode(1)
+        # 2. Crucial Step: Sleep for a safe 50ms to allow all compiled packets to fully flush 
+        # and be processed by the FPGA buffer before triggering the jump to Node 1.
+        # This completely eradicates physical race conditions where the FSM jumps before 
+        # parameters are fully received.
+        await asyncio.sleep(0.05)
         
+        if not self.isActive:
+            return
+            
+        logger.info("[ApiSweepTest] Triggering Node 1.")
+        self.ctrl.trigNode(self._actionId)
+
     def _buildReturnNode(self) -> ApiNodeData:
         """Dynamically build the reverse sweep node from the latest peak tick."""
         peak_phys = self._physicsAt(self._peakTick)
-        reg_peak = self.physDictToReg(peak_phys)
+        reg_peak = self.fillMissingChannels(self.physDictToReg(peak_phys), 50.0)
         
         useReturnReset = (self.stepResetMode == 1 and self.enableStepReset)
         
@@ -158,7 +173,7 @@ class ApiSweepTest(BaseApi):
             n.diMatchMask = self.logicMask | 0x500
             n.diMatchId = tgt
             n.countOverId = tgt
-            print(f"[ApiSweepTest] Built Return Node. diMatchMask={n.diMatchMask}, diMatchId={n.diMatchId}")
+            logger.info(f"[ApiSweepTest] Built Return Node. diMatchMask={n.diMatchMask}, diMatchId={n.diMatchId}")
         else:
             n.countOverId = tgt
             
@@ -182,13 +197,14 @@ class ApiSweepTest(BaseApi):
     def onUpdate(self, nodeId: int, tick: int, hw_ts: int):
         """Called by Engine FSM to sync real-time telemetry."""
         if nodeId == 0x0000:
+            if hasattr(self, "_fsmState") and self._fsmState == "WAIT_NODE_0":
+                self._fsmState = "RUNNING_PREHEAT"
+                asyncio.create_task(self._preheatAndStart())
             return
             
         if nodeId == self._actionId:
             self._phase = "ACTION"
         elif nodeId == self._returnId:
-            if self._phase == "ACTION":
-                self._peakTick = self._lastTick
             self._phase = "RETURN"
             
         if tick < 0:
@@ -199,8 +215,29 @@ class ApiSweepTest(BaseApi):
             
         # Freeze physical telemetry while FSM is parked in the Hold Node
         if nodeId == self._holdId:
+            if self._phase == "ACTION" and self.changeMode in (1, 2):
+                if self.returnMode == 1:
+                    self._peakTick = self.count
+                    self._phase = "RETURN"
+                    asyncio.create_task(self._trigReturnNodeWithDelay())
+                else:
+                    if self._tripTime is not None:
+                        self._phase = "RETURN"
+                        asyncio.create_task(self._trigReturnNodeWithDelay())
+                    else:
+                        logger.warning("[ApiSweepTest] Forward sweep completed without DI trip. Terminating.")
+                        self.ctrl.trigNode(0xFFFF)
             return
-            
+
+    async def _trigReturnNodeWithDelay(self):
+        """Asynchronously compiles, uploads and triggers the Return Node after a 50ms communications flush delay."""
+        n4 = self._buildReturnNode()
+        self.ctrl.upsertNodes({self._returnId: n4})
+        await asyncio.sleep(0.05)
+        if not self.isActive:
+            return
+        logger.info("[ApiSweepTest] Triggering Node 3 (Return).")
+        self.ctrl.trigNode(self._returnId)
 
     def onDi(self, di: int, hw_ts: int):
         """Called by Engine FSM immediately upon any DI contact variation."""
@@ -208,6 +245,10 @@ class ApiSweepTest(BaseApi):
         self._lastDiTs = hw_ts
         self._lastDi = di
         
+        # Only process DI transitions when FSM is actively RUNNING to ignore initial physical state reports
+        if getattr(self, "_fsmState", None) != "RUNNING":
+            return
+            
         changed = (di ^ old_di) & 0xFF
         mask = self.logicMask & 0xFF
         
@@ -222,21 +263,16 @@ class ApiSweepTest(BaseApi):
                 self._tripTime = dt_ms
                 self._tripVals = self._physicsAt(self._lastTick)
                 self._peakTick = self._lastTick
-                
-                # If we're returning dynamically, Engine is now parked in Node 3 (Hold).
-                # Compute Node 4 and perform Hot Update.
-                if self.changeMode in (1, 2) and self.returnMode == 0:
-                    n4 = self._buildReturnNode()
-                    self.ctrl.upsertNodes({self._returnId: n4})
-                    self.ctrl.trigNode(self._returnId)
+                logger.info(f"[ApiSweepTest] Captured DI Trip: tripTime={dt_ms}ms, peakTick={self._peakTick}")
                     
             elif self._phase == "RETURN" and self._returnTime is None:
                 # Capture the FIRST return
                 self._returnTime = dt_ms
                 self._returnVals = self._physicsAt(self._lastTick)
+                logger.info(f"[ApiSweepTest] Captured DI Return: returnTime={dt_ms}ms, lastTick={self._lastTick}")
 
     def _onStop(self):
-        """Called FSM is fully terminated (Node 0xFFFF)."""
+        """Called when FSM is fully terminated (Node 0xFFFF)."""
         report = {
             "tripTime": self._tripTime,
             "tripValues": self._tripVals

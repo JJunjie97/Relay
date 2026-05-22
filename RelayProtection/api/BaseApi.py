@@ -59,6 +59,9 @@ class BaseApi:
             if hw_ch not in static_dict:
                 dc_amp_reg, freq_reg = calib.PhysToReg(ch_idx, 0, 0.0, freq_hz)
                 static_dict[hw_ch] = {0: [dc_amp_reg, freq_reg]}
+            elif 0 not in static_dict[hw_ch]:
+                dc_amp_reg, freq_reg = calib.PhysToReg(ch_idx, 0, 0.0, freq_hz)
+                static_dict[hw_ch][0] = [dc_amp_reg, freq_reg]
         return static_dict
 
     def physDictToReg(self, phys_dict: Dict[str, Dict[str, List[float]]], is_delta: bool = False) -> Dict[int, Dict[int, List[int]]]:

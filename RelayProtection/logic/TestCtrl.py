@@ -66,6 +66,8 @@ class TestCtrl:
         if code == 0:  # VALUE_UPDATE
             nodeId, tick, ts = evt[1], evt[2], evt[3]
             if nodeId == 0xFFFF and self.running:
+                if self.engine.trigTarget == 0x0000 or self.engine.nodeId == 0x0000:
+                    return
                 self.errorReason = self.errorReason or self.engine.errorReason
                 self.engine.errorReason = None
                 self._doStop()
@@ -127,6 +129,7 @@ class TestCtrl:
         self.engine.manualTrig(0xFFFF)
 
     def _doStop(self):
+        self.setAmplifier(False)
         reason = self.errorReason
         self.errorReason = None
         if self.activeApi:
@@ -241,6 +244,26 @@ class TestCtrl:
 
     def _compileNode(self, n: ApiNodeData) -> USENode:
         baseFrame = self._compileDictToFrames(n.base, HWCodec.DDS_WR_SHADOW) if n.base else []
+        
+        # Guard zero-calibration & SYS_START prefix for Node 0 to prevent dry-flatline hardware output
+        # If compiling Node 0, we retrieve the preloaded hardware reset, debounce, and calibration frames
+        # and append the API's custom static registers, finalized by a guaranteed SYS_START.
+        is_node_0 = False
+        for nid, node_data in self.nodes.items():
+            if node_data is n and nid == 0:
+                is_node_0 = True
+                break
+                
+        if is_node_0:
+            existing_n0 = self.engine.nodes.get(0x0000)
+            if existing_n0 and existing_n0.baseFrame:
+                prefix = []
+                for f in existing_n0.baseFrame:
+                    if f != HWCodec.FRAME_SYS_START:
+                        prefix.append(f)
+                baseFrame = prefix + baseFrame + [HWCodec.FRAME_SYS_START]
+                logger.info("Successfully merged zero-calibration and SYS_START into newly compiled Node 0")
+
         resetFrame = self._compileDictToFrames(n.reset, HWCodec.DDS_WR_STAGE) if n.reset else []
         stepFrames = [self._compileDictToFrames(step, HWCodec.DDS_STEP_SHADOW) for step in n.steps] if n.steps else None
         gateFrames = None

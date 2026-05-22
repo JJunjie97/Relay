@@ -90,7 +90,11 @@ class EngineProxy:
 
     async def _send_cmd(self, cmd: str, args: Any):
         if not self.writer:
-            await self._connected.wait()
+            try:
+                await asyncio.wait_for(self._connected.wait(), timeout=3.0)
+            except asyncio.TimeoutError:
+                logger.error(f"Timeout waiting for IPC connection while sending '{cmd}'")
+                raise ConnectionError("IPC backend process is currently unavailable")
         try:
             data = pickle.dumps((cmd, args))
             header = len(data).to_bytes(4, 'big')
@@ -99,6 +103,10 @@ class EngineProxy:
         except Exception as e:
             logger.error(f"Failed to send IPC command '{cmd}': {e}")
             self.errorReason = f"IPC send error: {e}"
+            self.reader = None
+            self.writer = None
+            self._connected.clear()
+            raise ConnectionError(f"IPC connection lost during send: {e}")
 
     def setDebounce(self, dbnc: int):
         self.nodes[0x0000].baseFrame[1] = HWCodec.BuildSystemFrame(HWCodec.SYS_SET_DBNC, dbnc)
@@ -119,7 +127,12 @@ class EngineProxy:
                 length = int.from_bytes(len_bytes, 'big')
                 payload_bytes = await self.reader.readexactly(length)
                 
-                msg_type, val = pickle.loads(payload_bytes)
+                try:
+                    msg_type, val = pickle.loads(payload_bytes)
+                except Exception as pe:
+                    logger.error(f"Corrupted IPC payload received: {pe}")
+                    continue
+
                 if msg_type == "on_event":
                     # val 为 event 数据: [code, nodeId/diMask, tick/timestamp, timestamp]
                     if val[0] == 0:
