@@ -7,9 +7,9 @@ class HWConfig:
     MAX_FREQ = 0x7FFFFFFF / 0x100000000 * 40000000 / 0x400
     MAX_DBNC = 0xFF / 50000 * 0x4000
 
-    VOLTAGE  = 0x7FFFFFFF / MAX_VOLTAGE
-    CURRENT  = 0x7FFFFFFF / MAX_CURRENT
-    PHASE    = 0x100000000 / 360
+    VOLTAGE  = 0x7FFF / MAX_VOLTAGE
+    CURRENT  = 0x7FFF / MAX_CURRENT
+    PHASE    = 0x10000 / 360
     FREQ     = 0x100000000 / 40000000 * 0x400
     DBNC     = 50000 / 0x4000
     PHASE_PER_FREQ_MS = 40000000 / 1000 / 0x400
@@ -32,19 +32,19 @@ class HWConfig:
     @classmethod
     def ConvertAmpToReg(cls, amp: float, isCurrent: bool = False) -> int:
         scale = cls.CURRENT if isCurrent else cls.VOLTAGE
-        return int(round(amp * scale))
+        return (int(round(amp * scale)) << 16) & 0xFFFFFFFF
         
     @classmethod
     def ConvertPhaseToReg(cls, phase: float) -> int:
-        return int(round(phase * cls.PHASE))
+        return (int(round(phase * cls.PHASE)) << 16) & 0xFFFFFFFF
         
     @classmethod
     def ConvertFreqToReg(cls, freq: float) -> int:
-        return int(round(freq * cls.FREQ))
+        return int(round(freq * cls.FREQ)) & 0xFFFFFFFF
         
     @classmethod
     def ConvertDbncToReg(cls, time: float) -> int:
-        return int(round(time * cls.DBNC))
+        return int(round(time * cls.DBNC)) & 0xFF
 
 class HWCodec:
     SYS_START        = 0x00  # Start waveform generation

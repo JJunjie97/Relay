@@ -36,8 +36,8 @@ def make_ch_reg(ch_idx, amp_v, phase_deg, freq_hz=50.0):
     Returns: (hw_ch, {layer: [amp_reg, phase_reg]})
     """
     hw_ch = HWConfig.MapChannel(ch_idx)
-    dc_reg = list(calib.PhysToReg(ch_idx, 0, 0.0, freq_hz))
-    ac_reg = list(calib.PhysToReg(ch_idx, 1, amp_v, phase_deg))
+    dc_reg = list(calib.PhysToReg(hw_ch, 0, 0.0, freq_hz))
+    ac_reg = list(calib.PhysToReg(hw_ch, 1, amp_v, phase_deg))
     return hw_ch, {0: dc_reg, 1: ac_reg}
 
 
@@ -47,7 +47,7 @@ def make_step_reg(ch_idx, delta_amp_v, delta_phase_deg=0.0):
     Returns: {hw_ch: {layer: [delta_amp_reg, delta_phase_reg]}}
     """
     hw_ch = HWConfig.MapChannel(ch_idx)
-    da_reg, dp_reg = calib.PhysToReg(ch_idx, 1, delta_amp_v, delta_phase_deg, is_delta=True)
+    da_reg, dp_reg = calib.PhysToReg(hw_ch, 1, delta_amp_v, delta_phase_deg, is_delta=True)
     return {hw_ch: {1: [da_reg, dp_reg]}}
 
 
@@ -68,7 +68,7 @@ def make_full_base(ch_specs, freq_hz=50.0):
     for ch_idx in range(16):
         if ch_idx not in active_chs:
             hw_ch = HWConfig.MapChannel(ch_idx)
-            dc_reg = list(calib.PhysToReg(ch_idx, 0, 0.0, freq_hz))
+            dc_reg = list(calib.PhysToReg(hw_ch, 0, 0.0, freq_hz))
             base[hw_ch] = {0: dc_reg}
     
     return base
@@ -77,7 +77,7 @@ def make_full_base(ch_specs, freq_hz=50.0):
 def print_reg_values(label, hw_ch, layers):
     """Debug: print register values for a channel."""
     for l_idx, vals in layers.items():
-        phys = calib.RegToPhys(HWConfig.UnmapChannel(hw_ch), l_idx, vals[0], vals[1])
+        phys = calib.RegToPhys(hw_ch, l_idx, vals[0], vals[1])
         print(f"  [{label}] hw_ch={hw_ch} layer={l_idx}: reg=[0x{vals[0]:08X}, 0x{vals[1]:08X}] → phys={phys}")
 
 

@@ -42,7 +42,7 @@ class TestCtrl:
         baseline_dict = {}
         for ch_idx in range(12):  # Only V channels (0, 2, 4, 6, 8, 10) and I channels (1, 3, 5, 7, 9, 11)
             hw_ch = HWConfig.MapChannel(ch_idx)
-            dc_amp_reg, freq_reg = calib.PhysToReg(ch_idx, 0, 0.0, 50.0)
+            dc_amp_reg, freq_reg = calib.PhysToReg(hw_ch, 0, 0.0, 50.0)
             baseline_dict[hw_ch] = {
                 0: [dc_amp_reg, freq_reg]  # Only calibrate layer 0 (DC static bias / frequency)
             }
@@ -102,7 +102,8 @@ class TestCtrl:
             self.do = 0
             self.state = {i: {} for i in range(16)}
             self.nodes = {}
-            self.engine.setDebounce(msg.get("debounce", 61))
+            dbncPhys = msg.get("debounce", 20)
+            self.engine.setDebounce(HWConfig.ConvertDbncToReg(dbncPhys))
 
             self.activeApi = self._createApi(self._module)
             if not self.activeApi:
@@ -327,7 +328,7 @@ class TestCtrl:
                 "type": "value_update",
                 "static": {
                     str(HWConfig.UnmapChannel(ch)): {
-                        str(l): list(calib.RegToPhys(HWConfig.UnmapChannel(ch), l, *targetDict[ch][l])) if tick == -1 else list(calib.RegToPhys(HWConfig.UnmapChannel(ch), l, *self.state[ch][l]))
+                        str(l): list(calib.RegToPhys(ch, l, *targetDict[ch][l])) if tick == -1 else list(calib.RegToPhys(ch, l, *self.state[ch][l]))
                         for l in layers
                     }
                     for ch, layers in targetDict.items()

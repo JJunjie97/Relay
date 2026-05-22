@@ -190,7 +190,8 @@ class ApiManualTest(BaseApi):
             "base": self._stringify_keys(self.sim_base),
             "shadow": self._stringify_keys(self.sim_shadow),
             "active": self._stringify_keys(self.sim_active),
-            "factors": calib._factors,
+            "factorsDc": calib._factorsDc,
+            "factorsAc": calib._factorsAc,
             "biases": calib._biases,
             "output_enabled": self.output_enabled
         })
@@ -205,7 +206,7 @@ class ApiManualTest(BaseApi):
         # Reset matching hardware zero calibration preloads
         for ch_idx in range(12):
             hw_ch = HWConfig.MapChannel(ch_idx)
-            dc_amp_reg, freq_reg = calib.PhysToReg(ch_idx, 0, 0.0, 50.0)
+            dc_amp_reg, freq_reg = calib.PhysToReg(hw_ch, 0, 0.0, 50.0)
             self.sim_base[hw_ch][0] = [dc_amp_reg, freq_reg]
             self.sim_shadow[hw_ch][0] = [dc_amp_reg, freq_reg]
             self.sim_active[hw_ch][0] = [dc_amp_reg, freq_reg]

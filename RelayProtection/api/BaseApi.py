@@ -44,10 +44,11 @@ class BaseApi:
         self._onStop()
 
     def buildChannelReg(self, ch_idx: int, amplitude: float, angle_deg: float, freq_hz: float) -> Tuple[int, Dict[int, List[int]]]:
-        dc_amp_reg, freq_reg = calib.PhysToReg(ch_idx, 0, 0.0, freq_hz)
-        ac_amp_reg, phase_reg = calib.PhysToReg(ch_idx, 1, amplitude, angle_deg)
-        
         hw_ch = HWConfig.MapChannel(ch_idx)
+        dc_amp_reg, freq_reg = calib.PhysToReg(hw_ch, 0, 0.0, freq_hz)
+        ac_amp_reg, phase_reg = calib.PhysToReg(hw_ch, 1, amplitude, angle_deg)
+        
+
         return hw_ch, {
             0: [dc_amp_reg, freq_reg],
             1: [ac_amp_reg, phase_reg]
@@ -57,10 +58,10 @@ class BaseApi:
         for ch_idx in range(16):
             hw_ch = HWConfig.MapChannel(ch_idx)
             if hw_ch not in static_dict:
-                dc_amp_reg, freq_reg = calib.PhysToReg(ch_idx, 0, 0.0, freq_hz)
+                dc_amp_reg, freq_reg = calib.PhysToReg(hw_ch, 0, 0.0, freq_hz)
                 static_dict[hw_ch] = {0: [dc_amp_reg, freq_reg]}
             elif 0 not in static_dict[hw_ch]:
-                dc_amp_reg, freq_reg = calib.PhysToReg(ch_idx, 0, 0.0, freq_hz)
+                dc_amp_reg, freq_reg = calib.PhysToReg(hw_ch, 0, 0.0, freq_hz)
                 static_dict[hw_ch][0] = [dc_amp_reg, freq_reg]
         return static_dict
 
@@ -72,7 +73,7 @@ class BaseApi:
             reg_dict[hw_ch] = {}
             for l_str, vals in layers.items():
                 l_idx = int(l_str)
-                a_reg, p_reg = calib.PhysToReg(ch_idx, l_idx, vals[0], vals[1], is_delta)
+                a_reg, p_reg = calib.PhysToReg(hw_ch, l_idx, vals[0], vals[1], is_delta)
                 reg_dict[hw_ch][l_idx] = [a_reg, p_reg]
         return reg_dict
 
