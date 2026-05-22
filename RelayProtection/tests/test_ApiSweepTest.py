@@ -12,7 +12,7 @@ from logic.TestCtrl import TestCtrl
 
 logging.basicConfig(level=logging.DEBUG)
 
-USE_REAL_HARDWARE = os.getenv("USE_REAL_HARDWARE", "False").lower() in ("true", "1", "yes")
+USE_REAL_HARDWARE = os.getenv("USE_REAL_HARDWARE", "True").lower() in ("true", "1", "yes")
 
 class MockHWGateway:
     def __init__(self):
