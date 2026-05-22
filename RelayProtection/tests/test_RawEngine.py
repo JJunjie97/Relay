@@ -26,7 +26,7 @@ from logic.FPGACodec import HWConfig
 
 logging.basicConfig(level=logging.DEBUG)
 
-USE_REAL_HARDWARE = os.name != 'nt'
+USE_REAL_HARDWARE = os.getenv("USE_REAL_HARDWARE", "False").lower() in ("true", "1", "yes")
 
 # ── Helpers ──
 
