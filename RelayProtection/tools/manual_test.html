@@ -1,0 +1,1468 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FPGA 硬件指令交互调试面板 - Relay Protection</title>
+    <!-- 引入高质感现代字体 -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        /* 极致现代暗黑质感 CSS 设计系统 */
+        :root {
+            --bg-base: #0b0f19;
+            --bg-surface: rgba(17, 24, 39, 0.7);
+            --bg-card: rgba(31, 41, 55, 0.45);
+            --border-glow: rgba(59, 130, 246, 0.2);
+            --border-glow-active: rgba(99, 102, 241, 0.4);
+            --text-primary: #f3f4f6;
+            --text-secondary: #9ca3af;
+            --text-muted: #6b7280;
+            --accent-blue: #3b82f6;
+            --accent-indigo: #6366f1;
+            --accent-purple: #8b5cf6;
+            --status-green: #10b981;
+            --status-red: #ef4444;
+            --status-yellow: #f59e0b;
+            --glass-blur: blur(12px);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        body {
+            background-color: var(--bg-base);
+            color: var(--text-primary);
+            font-family: 'Inter', -apple-system, sans-serif;
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(99, 102, 241, 0.1) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(59, 130, 246, 0.08) 0%, transparent 40%);
+            background-attachment: fixed;
+            min-height: 100vh;
+            padding: 24px;
+        }
+
+        /* 顶部毛玻璃容器 */
+        .glass-panel {
+            background: var(--bg-surface);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 28px;
+            margin-bottom: 24px;
+        }
+
+        h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 24px;
+            font-weight: 600;
+            background: linear-gradient(135deg, #fff 30%, #a5b4fc 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            padding: 6px 14px;
+            border-radius: 9999px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .led {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--status-red);
+            box-shadow: 0 0 8px var(--status-red);
+        }
+
+        .led.connected {
+            background-color: var(--status-green);
+            box-shadow: 0 0 12px var(--status-green);
+            animation: pulse 2s infinite;
+        }
+
+        .led.active-test {
+            background-color: var(--status-yellow);
+            box-shadow: 0 0 12px var(--status-yellow);
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 0.6; }
+            50% { opacity: 1; }
+            100% { opacity: 0.6; }
+        }
+
+        /* 布局网格 */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr 1.3fr;
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+
+        @media (max-width: 1024px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .panel-card {
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .panel-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--border-glow), transparent);
+        }
+
+        .panel-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 18px;
+            font-weight: 500;
+            color: var(--text-primary);
+            border-left: 3px solid var(--accent-indigo);
+            padding-left: 10px;
+            margin-bottom: 4px;
+        }
+
+        /* 按钮与表单控件 */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 10px 18px;
+            font-weight: 500;
+            font-size: 14px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            cursor: pointer;
+            outline: none;
+            color: var(--text-primary);
+            background: rgba(255, 255, 255, 0.03);
+            gap: 6px;
+        }
+
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.15);
+            transform: translateY(-1px);
+        }
+
+        .btn:active {
+            transform: translateY(1px);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-blue) 0%, var(--accent-indigo) 100%);
+            border: none;
+            box-shadow: 0 4px 14px rgba(59, 130, 246, 0.3);
+        }
+
+        .btn-primary:hover {
+            box-shadow: 0 6px 20px rgba(59, 130, 246, 0.45);
+            background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, var(--status-green) 0%, #059669 100%);
+            border: none;
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, var(--status-red) 0%, #b91c1c 100%);
+            border: none;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            flex: 1;
+        }
+
+        label {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        input, select {
+            background: rgba(0, 0, 0, 0.25);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            padding: 10px 14px;
+            border-radius: 8px;
+            color: var(--text-primary);
+            outline: none;
+            font-family: inherit;
+            font-size: 14px;
+        }
+
+        input:focus, select:focus {
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+        }
+
+        /* 快捷通道选择器网格 */
+        .ch-grid {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            gap: 8px;
+            background: rgba(0, 0, 0, 0.15);
+            padding: 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+        }
+
+        .ch-box {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 8px;
+            background: var(--bg-card);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 6px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .ch-box.checked {
+            background: rgba(99, 102, 241, 0.25);
+            border-color: var(--accent-indigo);
+            box-shadow: 0 0 8px rgba(99, 102, 241, 0.2);
+        }
+
+        .ch-box input {
+            display: none;
+        }
+
+        .ch-num {
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .ch-label {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .ch-box.checked .ch-label {
+            color: #a5b4fc;
+        }
+
+        /* 警告横幅 */
+        .warning-banner {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.25);
+            border-radius: 8px;
+            padding: 12px 16px;
+            font-size: 13px;
+            color: #fbd38d;
+            display: none;
+            line-height: 1.4;
+        }
+
+        /* DI 状态灯 */
+        .di-container {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            padding: 14px;
+            background: rgba(0, 0, 0, 0.15);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+        }
+
+        .di-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--bg-card);
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.03);
+        }
+
+        .di-led {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.1);
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.5);
+        }
+
+        .di-led.active {
+            background: var(--status-green);
+            box-shadow: 0 0 10px var(--status-green), inset 0 1px 1px rgba(255,255,255,0.4);
+        }
+
+        .di-name {
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        /* 遥测监控看板 */
+        .telemetry-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 16px;
+            margin-top: 14px;
+        }
+
+        .telemetry-card {
+            background: var(--bg-card);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 12px;
+            padding: 16px;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        /* 不同缓冲器切换时的卡片发光边框设计 */
+        .telemetry-card.tab-active {
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.06);
+            border-color: rgba(16, 185, 129, 0.15);
+        }
+        .telemetry-card.tab-shadow {
+            box-shadow: 0 4px 12px rgba(245, 158, 11, 0.06);
+            border-color: rgba(245, 158, 11, 0.15);
+        }
+        .telemetry-card.tab-base {
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.06);
+            border-color: rgba(59, 130, 246, 0.15);
+        }
+
+        .tel-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding-bottom: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .tel-ch-badge {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 9999px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            font-family: 'Fira Code', monospace;
+        }
+
+        /* 精致微动谐波状态行 */
+        .tel-rows-container {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            max-height: 150px;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+
+        .tel-row-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.02);
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+        }
+
+        .tel-row-layer {
+            font-weight: 500;
+            color: #cbd5e1;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .tel-layer-indicator {
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+        }
+        .tel-layer-dc { background: #38bdf8; }
+        .tel-layer-ac { background: #818cf8; }
+
+        .tel-row-vals {
+            font-family: 'Fira Code', monospace;
+            text-align: right;
+        }
+
+        .tel-val-amp {
+            color: #60a5fa;
+            font-weight: 600;
+        }
+
+        .tel-val-phys {
+            color: var(--text-secondary);
+            font-size: 11px;
+            margin-left: 4px;
+        }
+
+        .tel-row-empty {
+            color: var(--text-muted);
+            font-size: 12px;
+            text-align: center;
+            padding: 12px 0;
+            font-style: italic;
+        }
+
+        /* 选项卡激活样式 */
+        .btn-tab-active-active {
+            background: rgba(16, 185, 129, 0.15) !important;
+            border-color: var(--status-green) !important;
+            color: #34d399 !important;
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.15);
+        }
+        .btn-tab-active-shadow {
+            background: rgba(245, 158, 11, 0.15) !important;
+            border-color: var(--status-yellow) !important;
+            color: #fbbf24 !important;
+            box-shadow: 0 0 10px rgba(245, 158, 11, 0.15);
+        }
+        .btn-tab-active-base {
+            background: rgba(59, 130, 246, 0.15) !important;
+            border-color: var(--accent-blue) !important;
+            color: #60a5fa !important;
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.15);
+        }
+
+        /* 控制台虚拟终端 */
+        .terminal-container {
+            margin-top: 24px;
+        }
+
+        .terminal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #1e293b;
+            padding: 8px 16px;
+            border-radius: 12px 12px 0 0;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-bottom: none;
+        }
+
+        .terminal-title {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            font-family: 'Fira Code', monospace;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .terminal-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--accent-blue);
+        }
+
+        .terminal-body {
+            background: #090d16;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 0 0 12px 12px;
+            height: 250px;
+            overflow-y: auto;
+            padding: 16px;
+            font-family: 'Fira Code', monospace;
+            font-size: 12px;
+            line-height: 1.6;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .log-line {
+            display: flex;
+            gap: 12px;
+        }
+
+        .log-ts {
+            color: var(--text-muted);
+            user-select: none;
+        }
+
+        .log-tx {
+            color: var(--status-yellow);
+        }
+
+        .log-rx {
+            color: var(--status-green);
+        }
+
+        .log-err {
+            color: var(--status-red);
+        }
+
+        .log-info {
+            color: #38bdf8;
+        }
+
+        /* 辅助工具样式 */
+        .flex-row {
+            display: flex;
+            gap: 16px;
+        }
+
+        .align-end {
+            align-items: flex-end;
+        }
+
+        .mt-4 {
+            margin-top: 16px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 顶部连接状态面板 -->
+    <header class="glass-panel">
+        <h1>
+            <span class="terminal-dot" style="width: 12px; height: 12px; background: var(--accent-purple);"></span>
+            FPGA 核心硬件指令交互测试面板
+        </h1>
+        <div class="flex-row" style="align-items: center; gap: 14px;">
+            <div class="input-group" style="flex-direction: row; align-items: center; gap: 8px; margin: 0;">
+                <label style="white-space: nowrap;">服务地址:</label>
+                <input type="text" id="wsUrl" value="ws://raspberrypi:8080" style="padding: 6px 12px; font-size: 13px; width: 180px;">
+            </div>
+            <button class="btn btn-primary" id="btnConnect" style="padding: 6px 16px;">连接网关</button>
+            <div class="status-badge">
+                <span class="led" id="statusLed"></span>
+                <span id="statusText">离线</span>
+                <span id="pingDelay" style="color: var(--text-muted); font-size: 11px; margin-left: 4px; display: none;"></span>
+            </div>
+        </div>
+    </header>
+
+    <!-- 网格面板 -->
+    <div class="dashboard-grid">
+
+        <!-- 左栏：系统级指令控制区 -->
+        <div class="panel-card glass-panel">
+            <div>
+                <div class="panel-title">系统状态控制器 (SYS COMMANDS)</div>
+                <div class="btn-group mt-4">
+                    <button class="btn btn-success" id="btnStartApi">启动 API 调试模式</button>
+                    <button class="btn btn-danger" id="btnStopApi">结束调试 (RESET)</button>
+                </div>
+            </div>
+
+            <div style="border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 16px;">
+                <label>基本控制指令(单字节帧):</label>
+                <div class="btn-group mt-4">
+                    <button class="btn" onclick="sendSysCommand(0x00, 'SYS_START')">SYS_START (启动波形)</button>
+                    <button class="btn" onclick="sendSysCommand(0x01, 'SYS_STOP')">SYS_STOP (停止波形)</button>
+                    <button class="btn" onclick="sendSysCommand(0x04, 'SYS_RESET')">SYS_RESET (硬复位)</button>
+                    <button class="btn" onclick="sendSysCommand(0x05, 'SYS_UPDATE')">SYS_UPDATE (倒换Shadow)</button>
+                    <button class="btn" onclick="sendSysCommand(0x06, 'SYS_SYNC')">SYS_SYNC (三级缓冲对齐)</button>
+                </div>
+            </div>
+
+            <div class="flex-row align-end" style="border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 16px;">
+                <div class="input-group">
+                    <label for="dbncVal">DI 去抖动滤波时长:</label>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="number" id="dbncVal" value="20.0" step="1.0" min="0.1" style="flex: 1;">
+                        <span style="align-self: center; font-size: 13px; color: var(--text-muted);">ms</span>
+                    </div>
+                </div>
+                <button class="btn btn-primary" onclick="sendDbnc()">设置去抖滤波</button>
+            </div>
+
+            <div style="border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 16px;">
+                <label>DO 数字量继电器输出状态 (0-7):</label>
+                <div class="ch-grid mt-4" style="grid-template-columns: repeat(4, 1fr); gap: 10px;">
+                    <!-- DO 开关 -->
+                    <div class="ch-box" onclick="toggleDo(0)" id="do-0"><span class="ch-num">DO 0</span><span class="ch-label">关</span></div>
+                    <div class="ch-box" onclick="toggleDo(1)" id="do-1"><span class="ch-num">DO 1</span><span class="ch-label">关</span></div>
+                    <div class="ch-box" onclick="toggleDo(2)" id="do-2"><span class="ch-num">DO 2</span><span class="ch-label">关</span></div>
+                    <div class="ch-box" onclick="toggleDo(3)" id="do-3"><span class="ch-num">DO 3</span><span class="ch-label">关</span></div>
+                    <div class="ch-box" onclick="toggleDo(4)" id="do-4"><span class="ch-num">DO 4</span><span class="ch-label">关</span></div>
+                    <div class="ch-box" onclick="toggleDo(5)" id="do-5"><span class="ch-num">DO 5</span><span class="ch-label">关</span></div>
+                    <div class="ch-box" onclick="toggleDo(6)" id="do-6"><span class="ch-num">DO 6</span><span class="ch-label">关</span></div>
+                    <div class="ch-box" onclick="toggleDo(7)" id="do-7"><span class="ch-num">DO 7</span><span class="ch-label">关</span></div>
+                </div>
+                <button class="btn btn-primary mt-4" style="width: 100%;" onclick="sendDoMask()">同步发送 DO 状态掩码</button>
+            </div>
+
+            <div style="border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 16px;">
+                <div class="panel-title" style="font-size: 15px;">DDS 相位对齐门控 (PHASE_GATE)</div>
+                <div class="flex-row mt-4">
+                    <div class="input-group">
+                        <label for="gateCh">目标物理通道 (0-15):</label>
+                        <input type="number" id="gateCh" value="0" min="0" max="15">
+                    </div>
+                    <div class="input-group">
+                        <label id="gatePhaseLabel" for="gatePhase">目标相位 (度 0-360):</label>
+                        <input type="number" id="gatePhase" value="0.0" step="1.0">
+                    </div>
+                </div>
+                <div class="flex-row mt-4" style="align-items: center;">
+                    <label style="cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="gateIsRaw" onchange="toggleGateRaw()"> 原始 U32 寄存器值输入
+                    </label>
+                    <button class="btn btn-primary" onclick="sendPhaseGate()" style="margin-left: auto;">下发相位门控</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右栏：DDS 参数级指令配置区 -->
+        <div class="panel-card glass-panel">
+            <div class="panel-title">DDS 波形参数编辑器 (PARAM COMMANDS)</div>
+
+            <div class="flex-row">
+                <div class="input-group">
+                    <label for="paramCode">写入/步进指令 (Code):</label>
+                    <select id="paramCode">
+                        <option value="0x10">DDS_WR_SHADOW (0x10 - 写Base+Shadow)</option>
+                        <option value="0x11">DDS_WR_STAGE (0x11 - 暂存Shadow，不写Base)</option>
+                        <option value="0x14">DDS_STEP_SHADOW (0x14 - 影子步进 Base+=Step)</option>
+                        <option value="0x15">DDS_STEP_STAGE (0x15 - 暂存步进 Shadow+=Step)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="flex-row">
+                <div class="input-group" style="flex: 0.5;">
+                    <label for="layerIdx">层级 (Index / Hardware Layer):</label>
+                    <select id="layerIdx" onchange="onLayerChange()">
+                        <option value="255">0xFF (直流静态偏置/主频率)</option>
+                        <option value="0" selected>0x00 (交流1次谐波 / 基频)</option>
+                        <option value="1">0x01 (交流2次谐波)</option>
+                        <option value="2">0x02 (交流3次谐波)</option>
+                        <option value="4">0x04 (交流5次谐波)</option>
+                    </select>
+                </div>
+                <div class="input-group" style="align-self: flex-end; align-items: flex-end;">
+                    <label style="cursor: pointer; display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                        <input type="checkbox" id="paramIsRaw" onchange="toggleParamRaw()"> 原始 U32 寄存器值输入
+                    </label>
+                </div>
+            </div>
+
+            <div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <label>选择作用的目标通道 (Channel Mask):</label>
+                    <div class="btn-group" style="gap: 6px;">
+                        <button class="btn" style="padding: 2px 8px; font-size: 11px;" onclick="setChSelection('all')">全选</button>
+                        <button class="btn" style="padding: 2px 8px; font-size: 11px;" onclick="setChSelection('clear')">清空</button>
+                        <button class="btn" style="padding: 2px 8px; font-size: 11px;" onclick="setChSelection('v')">电压通道</button>
+                        <button class="btn" style="padding: 2px 8px; font-size: 11px;" onclick="setChSelection('i')">电流通道</button>
+                    </div>
+                </div>
+                <div class="ch-grid" id="paramChGrid">
+                    <!-- 通道选择框 -->
+                </div>
+            </div>
+
+            <div class="flex-row">
+                <div class="input-group">
+                    <label id="p1Label" for="p1Val">幅值参数 (P1 / Amplitude):</label>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="number" id="p1Val" value="0.0" step="0.1" oninput="checkParamSafety()" style="flex: 1;">
+                        <span id="p1Unit" style="align-self: center; font-size: 13px; color: var(--text-muted);">V / A</span>
+                    </div>
+                </div>
+                <div class="input-group">
+                    <label id="p2Label" for="p2Val">相位参数 (P2 / Phase):</label>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="number" id="p2Val" value="0.0" step="1.0" style="flex: 1;">
+                        <span id="p2Unit" style="align-self: center; font-size: 13px; color: var(--text-muted);">° (度)</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 幅值符号位越界饱和红色红线警示框 -->
+            <div class="warning-banner" id="safetyWarning">
+                ⚠️ <strong>幅值有符号数截断/溢出红线警告</strong><br>
+                当前输入的幅值在硬件寄存器编译后将跨越 <strong>32767</strong> 的上限限制。由于底层计算强转为 16位有符号整数 (I16) 处理，这会使得波形的输出**发生极性翻转，瞬间跳变到反方向最大值**！请谨慎下发！
+            </div>
+
+            <button class="btn btn-primary mt-4" style="width: 100%; padding: 12px 18px;" onclick="sendParamCommand()">下发 DDS 波形参数命令</button>
+        </div>
+
+    </div>
+
+    <!-- 下栏：数字输入遥测 + 硬件状态数值网格看板 -->
+    <div class="panel-card glass-panel" style="margin-bottom: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+            <div class="panel-title">FPGA 缓冲器仿真与通道状态监视</div>
+            <!-- 缓冲器选项卡切换控制器 -->
+            <div class="btn-group" style="gap: 8px;" id="bufferTabGroup">
+                <button class="btn btn-tab-active-active" id="tab-active" onclick="switchBufferTab('active')">🟢 Active 物理生效 (实时DAC)</button>
+                <button class="btn" id="tab-shadow" onclick="switchBufferTab('shadow')">🟡 Shadow 预载挂起 (待Update)</button>
+                <button class="btn" id="tab-base" onclick="switchBufferTab('base')">🔵 Base 寄存器堆 (硬件基准)</button>
+            </div>
+        </div>
+        
+        <label class="mt-4">DI 物理开关量输入检测状态 (0-7):</label>
+        <div class="di-container mt-4">
+            <div class="di-item"><span class="di-led" id="di-led-0"></span><span class="di-name">DI 0</span></div>
+            <div class="di-item"><span class="di-led" id="di-led-1"></span><span class="di-name">DI 1</span></div>
+            <div class="di-item"><span class="di-led" id="di-led-2"></span><span class="di-name">DI 2</span></div>
+            <div class="di-item"><span class="di-led" id="di-led-3"></span><span class="di-name">DI 3</span></div>
+            <div class="di-item"><span class="di-led" id="di-led-4"></span><span class="di-name">DI 4</span></div>
+            <div class="di-item"><span class="di-led" id="di-led-5"></span><span class="di-name">DI 5</span></div>
+            <div class="di-item"><span class="di-led" id="di-led-6"></span><span class="di-name">DI 6</span></div>
+            <div class="di-item"><span class="di-led" id="di-led-7"></span><span class="di-name">DI 7</span></div>
+        </div>
+
+        <label class="mt-4">16 通道 DDS 仿真寄存器物理反译看板 (动态遍历所有生效谐波层):</label>
+        <div id="telemetryStatusBanner" style="margin-top: 14px;"></div>
+        <div class="telemetry-grid" id="telemetryGrid">
+            <!-- 自动生成 16 通道卡片 -->
+        </div>
+    </div>
+
+    <!-- 底部彩色命令行终端 -->
+    <div class="terminal-container">
+        <div class="terminal-header">
+            <div class="terminal-title">
+                <span class="terminal-dot"></span>
+                COMMUNICATION CONSOLE TERMINAL
+            </div>
+            <button class="btn" style="padding: 2px 10px; font-size: 11px; background: rgba(255,255,255,0.05);" onclick="clearTerminal()">清空记录</button>
+        </div>
+        <div class="terminal-body" id="termBody">
+            <div class="log-line"><span class="log-ts">[11:00:00]</span><span class="log-info">终端就绪。请输入树莓派网关地址并点击“连接网关”启动测试链路。</span></div>
+        </div>
+    </div>
+
+    <script>
+        // 前端全套业务与FPGA三级缓冲仿真交互控制 JS
+        let ws = null;
+        let isTestRunning = false;
+        let activeDoMask = 0;
+        
+        // FPGA 三级缓冲区本地寄存器快照仿真
+        let simBuffers = {
+            base: {},
+            shadow: {},
+            active: {}
+        };
+        let calibFactors = Array(16).fill(1.0);
+        let calibBiases = Array(16).fill(0.0);
+        let outputEnabled = false; // DDS 波形发生器输出使能状态 (由 SYS_START / SYS_STOP 驱动)
+        let currentBufferTab = 'active'; // 默认查看活跃输出层
+
+        // 物理常数与算术因子 (完美的RegToPhys反译)
+        const MAX_VOLTAGE = 200.0;
+        const MAX_CURRENT = 60.0;
+        const VOLTAGE = 0x7FFFFFFF / MAX_VOLTAGE;
+        const CURRENT = 0x7FFFFFFF / MAX_CURRENT;
+        const FREQ = 0x100000000 / 40000000 * 0x400; // 110000.0
+        const PHASE = 0x100000000 / 360; // 11930464.7111
+
+        // 通道映射与列表
+        const chMapping = [0, 2, 4, 6, 8, 10, 1, 3, 5, 7, 9, 11, 12, 13, 14, 15];
+        const vChannels = [0, 2, 4, 6, 8, 10];
+        const iChannels = [1, 3, 5, 7, 9, 11];
+
+        function initUI() {
+            const chGrid = document.getElementById("paramChGrid");
+            chGrid.innerHTML = "";
+            for (let i = 0; i < 16; i++) {
+                let label = "N";
+                if (vChannels.includes(i)) label = `U${vChannels.indexOf(i) + 1}`;
+                else if (iChannels.includes(i)) label = `I${iChannels.indexOf(i) + 1}`;
+                
+                chGrid.innerHTML += `
+                    <div class="ch-box" id="chbox-${i}" onclick="toggleChBox(${i})">
+                        <span class="ch-num">${i}</span>
+                        <span class="ch-label">${label}</span>
+                    </div>
+                `;
+            }
+            // 预加载空白看板
+            updateTelemetryDisplay();
+        }
+
+        function toggleChBox(ch) {
+            const box = document.getElementById(`chbox-${ch}`);
+            box.classList.toggle("checked");
+            checkParamSafety();
+        }
+
+        function setChSelection(type) {
+            for(let i=0; i<16; i++) {
+                const box = document.getElementById(`chbox-${i}`);
+                if (type === 'all') box.classList.add("checked");
+                else if (type === 'clear') box.classList.remove("checked");
+                else if (type === 'v') {
+                    if (vChannels.includes(i)) box.classList.add("checked");
+                    else box.classList.remove("checked");
+                } else if (type === 'i') {
+                    if (iChannels.includes(i)) box.classList.add("checked");
+                    else box.classList.remove("checked");
+                }
+            }
+            checkParamSafety();
+        }
+
+        // 获取当前勾选通道掩码和物理属性
+        function getSelectedChannels() {
+            let mask = 0;
+            let list = [];
+            for (let i = 0; i < 16; i++) {
+                if (document.getElementById(`chbox-${i}`).classList.contains("checked")) {
+                    mask |= (1 << i);
+                    list.push(i);
+                }
+            }
+            return { mask, list };
+        }
+
+        // 连接和通信管理
+        document.getElementById("btnConnect").addEventListener("click", () => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.close();
+                return;
+            }
+
+            const url = document.getElementById("wsUrl").value;
+            logTerminal(`正在尝试连接 WebSocket 网关: ${url}...`, "info");
+            
+            ws = new WebSocket(url);
+
+            ws.onopen = () => {
+                document.getElementById("statusLed").className = "led connected";
+                document.getElementById("statusText").innerText = "已连接网关";
+                document.getElementById("btnConnect").innerText = "断开网关";
+                logTerminal("成功连接到树莓派网关系统！", "rx");
+                startPingLoop();
+                
+                // 连接成功后，若测试处于运行状态，自动拉取最新的仿真寄存器组
+                setTimeout(() => {
+                    sendJson({ cmd: "pull_buffers" });
+                }, 500);
+            };
+
+            ws.onclose = () => {
+                document.getElementById("statusLed").className = "led";
+                document.getElementById("statusText").innerText = "离线";
+                document.getElementById("btnConnect").innerText = "连接网关";
+                document.getElementById("pingDelay").style.display = "none";
+                logTerminal("与树莓派网关的连接已断开。", "err");
+                isTestRunning = false;
+                updateTestModeUI();
+                stopPingLoop();
+            };
+
+            ws.onerror = (err) => {
+                logTerminal(`WebSocket 连接发生异常，请检查网关地址和端口是否正确。`, "err");
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleIncomingMsg(data);
+                } catch(e) {
+                    logTerminal(`解析遥测帧 JSON 失败: ${event.data}`, "err");
+                }
+            };
+        });
+
+        // 心跳/Ping 机制
+        let pingTimer = null;
+        function startPingLoop() {
+            pingTimer = setInterval(() => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ cmd: "ping", ts: Date.now() }));
+                }
+            }, 3000);
+        }
+        function stopPingLoop() {
+            if (pingTimer) clearInterval(pingTimer);
+        }
+
+        // 启动/停止 API 测试
+        document.getElementById("btnStartApi").addEventListener("click", () => {
+            sendJson({ cmd: "start", module: "manual_test" });
+            isTestRunning = true;
+            updateTestModeUI();
+            logTerminal("下发开始测试状态机命令 (manual_test 模块)...", "tx");
+        });
+
+        document.getElementById("btnStopApi").addEventListener("click", () => {
+            sendJson({ cmd: "stop" });
+            isTestRunning = false;
+            updateTestModeUI();
+            logTerminal("下发停止测试命令 (硬复位 FPGA)...", "tx");
+        });
+
+        function updateTestModeUI() {
+            const statusLed = document.getElementById("statusLed");
+            const statusText = document.getElementById("statusText");
+            if (isTestRunning) {
+                statusLed.className = "led active-test";
+                statusText.innerText = "调试模式激活中";
+            } else {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    statusLed.className = "led connected";
+                    statusText.innerText = "已连接网关";
+                } else {
+                    statusLed.className = "led";
+                    statusText.innerText = "离线";
+                }
+            }
+        }
+
+        // 选项卡切换
+        function switchBufferTab(tabName) {
+            currentBufferTab = tabName;
+            
+            // 切换选项卡按钮高亮
+            const btnActive = document.getElementById("tab-active");
+            const btnShadow = document.getElementById("tab-shadow");
+            const btnBase = document.getElementById("tab-base");
+            
+            btnActive.className = "btn";
+            btnShadow.className = "btn";
+            btnBase.className = "btn";
+            
+            if (tabName === 'active') btnActive.classList.add("btn-tab-active-active");
+            else if (tabName === 'shadow') btnShadow.classList.add("btn-tab-active-shadow");
+            else if (tabName === 'base') btnBase.classList.add("btn-tab-active-base");
+            
+            logTerminal(`看板切换查看视图: 【${tabName.toUpperCase()} 缓冲器】`, "info");
+            updateTelemetryDisplay();
+        }
+
+        // 处理从 WebSocket 接收的数据
+        function handleIncomingMsg(msg) {
+            // 心跳 Pong
+            if (msg.type === "pong" || msg.cmd === "ping") {
+                const now = Date.now();
+                const latency = now - (msg.ts || now);
+                const pingSpan = document.getElementById("pingDelay");
+                pingSpan.style.display = "inline";
+                pingSpan.innerText = `(${latency}ms Ping)`;
+                return;
+            }
+
+            // 接收后端推送的 3 层仿真缓冲寄存器包
+            if (msg.type === "sim_buffers") {
+                simBuffers.base = msg.base || {};
+                simBuffers.shadow = msg.shadow || {};
+                simBuffers.active = msg.active || {};
+                if (msg.factors) calibFactors = msg.factors;
+                if (msg.biases) calibBiases = msg.biases;
+                if (msg.output_enabled !== undefined) outputEnabled = msg.output_enabled;
+                
+                logTerminal(`同步本地仿真缓冲区成功：Base/Shadow/Active 状态树已刷新。`, "rx");
+                updateTelemetryDisplay();
+                return;
+            }
+
+            logTerminal(`[RX] 收到遥测/响应帧: ${JSON.stringify(msg)}`, "rx");
+
+            // 处理 DI/DO 状态更新
+            if (msg.type === "value_update") {
+                if (msg.di !== undefined) {
+                    for(let i=0; i<8; i++) {
+                        const led = document.getElementById(`di-led-${i}`);
+                        if ((msg.di & (1 << i)) !== 0) led.classList.add("active");
+                        else led.classList.remove("active");
+                    }
+                }
+                if (msg.do !== undefined) {
+                    for(let i=0; i<8; i++) {
+                        const btn = document.getElementById(`do-${i}`);
+                        if ((msg.do & (1 << i)) !== 0) {
+                            btn.classList.add("checked");
+                            btn.querySelector(".ch-label").innerText = "开";
+                        } else {
+                            btn.classList.remove("checked");
+                            btn.querySelector(".ch-label").innerText = "关";
+                        }
+                    }
+                    activeDoMask = msg.do;
+                }
+            } else if (msg.type === "error") {
+                logTerminal(`⚠️ 硬件回传报警: ${msg.msg}`, "err");
+            } else if (msg.type === "stop") {
+                isTestRunning = false;
+                updateTestModeUI();
+                logTerminal("调试状态已被服务器强制挂起。", "err");
+            }
+        }
+
+        // 精确反译硬件 32位无符号寄存器数值到物理真实度量 (RegToPhys)
+        function regToPhys(chIdx, layerIdx, aRegU32, pRegU32) {
+            let apiCh = chMapping.indexOf(chIdx);
+            if (apiCh === -1) apiCh = chIdx; // Fallback
+            let isCur = apiCh >= 6;
+            let scale = isCur ? CURRENT : VOLTAGE;
+            
+            // 将 U32 强制转换为 signed 32-bit int
+            let aRegSigned = aRegU32 >= 0x80000000 ? aRegU32 - 0x100000000 : aRegU32;
+            let pRegSigned = pRegU32 >= 0x80000000 ? pRegU32 - 0x100000000 : pRegU32;
+
+            let aCalib = aRegSigned / scale;
+            let factor = calibFactors[apiCh] || 1.0;
+            let bias = calibBiases[apiCh] || 0.0;
+
+            let amplitude = 0.0;
+            let pPhys = 0.0;
+
+            if (layerIdx === 255) {
+                // DC 偏置：p2 是频率
+                amplitude = (bias - aCalib) / factor;
+                pPhys = pRegSigned / FREQ;
+            } else {
+                // AC 谐波：p2 是相位
+                amplitude = -aCalib / factor;
+                pPhys = pRegSigned / PHASE;
+            }
+
+            if (Math.abs(amplitude) < 0.00001) amplitude = 0.0;
+            if (Math.abs(pPhys) < 0.00001) pPhys = 0.0;
+
+            return {
+                amp: parseFloat(amplitude.toFixed(4)),
+                phys: parseFloat(pPhys.toFixed(4))
+            };
+        }
+
+        // 动态渲染 16 通道 DDS 多层激活寄存器看板 (遍历所有有值层)
+        function updateTelemetryDisplay() {
+            const telGrid = document.getElementById("telemetryGrid");
+            telGrid.innerHTML = "";
+
+            // 动态更新波形发生器状态指示横幅
+            const statusBanner = document.getElementById("telemetryStatusBanner");
+            if (statusBanner) {
+                if (currentBufferTab === 'active') {
+                    if (outputEnabled) {
+                        statusBanner.innerHTML = `
+                            <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 10px 16px; margin-bottom: 16px; color: #34d399; font-weight: 600; display: flex; align-items: center; gap: 8px; animation: pulse 2s infinite;">
+                                <span style="width: 8px; height: 8px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981;"></span>
+                                🟢 DDS 波形发生器输出激活中 — 物理 DAC 正在实时输出电流与电压
+                            </div>
+                        `;
+                    } else {
+                        statusBanner.innerHTML = `
+                            <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 10px 16px; margin-bottom: 16px; color: #f87171; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                                <span style="width: 8px; height: 8px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 8px #ef4444;"></span>
+                                🛑 DDS 波形发生器已停止 — 物理输出置零 (配置参数仍驻留 Active 寄存器)
+                            </div>
+                        `;
+                    }
+                    statusBanner.style.display = "block";
+                } else if (currentBufferTab === 'shadow') {
+                    statusBanner.innerHTML = `
+                        <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; padding: 10px 16px; margin-bottom: 16px; color: #fbbf24; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                            <span style="width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; box-shadow: 0 0 8px #f59e0b;"></span>
+                            🟡 Shadow 影子预载挂起堆 — 参数已写入，待下发 SYS_UPDATE (更新倒换) 即可生效
+                        </div>
+                    `;
+                    statusBanner.style.display = "block";
+                } else {
+                    statusBanner.innerHTML = `
+                        <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 10px 16px; margin-bottom: 16px; color: #60a5fa; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                            <span style="width: 8px; height: 8px; border-radius: 50%; background: #3b82f6; box-shadow: 0 0 8px #3b82f6;"></span>
+                            🔵 Base 底层基准寄存器堆 — 永久基底参数，是 STEP 步进操作累加的“被加数”基准库
+                        </div>
+                    `;
+                    statusBanner.style.display = "block";
+                }
+            }
+
+            const currentBuffer = simBuffers[currentBufferTab] || {};
+
+            for (let i = 0; i < 16; i++) {
+                let name = `CH ${i} (其它)`;
+                if (vChannels.includes(i)) name = `U${vChannels.indexOf(i) + 1} 电压通道 (${i})`;
+                else if (iChannels.includes(i)) name = `I${iChannels.indexOf(i) + 1} 电流通道 (${i})`;
+
+                let isCur = iChannels.includes(i);
+                let unit = isCur ? "A" : "V";
+
+                // 卡片特定发光边框类
+                let tabBorderClass = `tab-${currentBufferTab}`;
+
+                // 提取通道的全部层级
+                let chLayers = currentBuffer[i] || {};
+                
+                // 将层级排序：物理槽位 0 (直流) 排首位，交流谐波按照物理槽位升序紧跟其后
+                let sortedLayerKeys = Object.keys(chLayers).map(k => parseInt(k)).sort((a, b) => {
+                    if (a === 0) return -1;
+                    if (b === 0) return 1;
+                    return a - b;
+                });
+
+                // 生成已激活层级的数据行 HTML
+                let rowsHtml = "";
+                let hasActiveLayer = false;
+
+                sortedLayerKeys.forEach(slotIdx => {
+                    const regs = chLayers[slotIdx]; // [p1, p2]
+                    const p1 = regs[0];
+                    const p2 = regs[1];
+
+                    // 只有当寄存器值不为 0 时才认为该层被激活生效 (或者是 DC 的标定状态)
+                    if (p1 !== 0 || p2 !== 0) {
+                        hasActiveLayer = true;
+                        
+                        // 将物理 slotIdx 映射回协议的 layerIdx 用于 regToPhys 反译
+                        const layerIdx = slotIdx === 0 ? 255 : (slotIdx - 1);
+                        const physResult = regToPhys(i, layerIdx, p1, p2);
+                        const isStopOnActive = (currentBufferTab === 'active' && !outputEnabled);
+
+                        let ampText = "";
+                        let configText = "";
+                        if (isStopOnActive) {
+                            ampText = `<span class="tel-val-amp" style="color: var(--text-muted);">0.00 ${unit}</span>`;
+                            configText = `<span class="tel-val-phys" style="text-decoration: line-through; color: var(--text-muted); margin-right: 6px;">配置 ${physResult.amp.toFixed(2)} ${unit}</span>`;
+                        } else {
+                            ampText = `<span class="tel-val-amp">${physResult.amp.toFixed(2)} ${unit}</span>`;
+                        }
+
+                        if (slotIdx === 0) {
+                            rowsHtml += `
+                                <div class="tel-row-item">
+                                    <div class="tel-row-layer">
+                                        <span class="tel-layer-indicator tel-layer-dc"></span>
+                                        <span>直流偏置</span>
+                                    </div>
+                                    <div class="tel-row-vals">
+                                        ${configText}
+                                        ${ampText}
+                                        <span class="tel-val-phys" style="margin-left: 6px;">${physResult.phys.toFixed(1)} Hz</span>
+                                    </div>
+                                </div>
+                            `;
+                        } else {
+                            rowsHtml += `
+                                <div class="tel-row-item">
+                                    <div class="tel-row-layer">
+                                        <span class="tel-layer-indicator tel-layer-ac"></span>
+                                        <span>交流 ${slotIdx} 次</span>
+                                    </div>
+                                    <div class="tel-row-vals">
+                                        ${configText}
+                                        ${ampText}
+                                        <span class="tel-val-phys" style="margin-left: 6px;">${physResult.phys.toFixed(1)}°</span>
+                                    </div>
+                                </div>
+                            `;
+                        }
+                    }
+                });
+
+                if (!hasActiveLayer) {
+                    rowsHtml = `<div class="tel-row-empty">🛡️ 全通道挂起 (安全零输出)</div>`;
+                }
+
+                // 组装通道监控卡片
+                telGrid.innerHTML += `
+                    <div class="telemetry-card ${tabBorderClass}" id="telcard-${i}">
+                        <div class="tel-title">
+                            <span>${name}</span>
+                            <span class="tel-ch-badge">HW CH ${i}</span>
+                        </div>
+                        <div class="tel-rows-container">
+                            ${rowsHtml}
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        // 发送通用 JSON 到 WebSocket
+        function sendJson(obj) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                logTerminal("发送失败：未连接到树莓派网关服务，请先连接并启动测试调试状态！", "err");
+                return;
+            }
+            ws.send(JSON.stringify(obj));
+        }
+
+        // 下发系统级指令
+        function sendSysCommand(code, name) {
+            const msg = {
+                cmd: "sys_command",
+                code: code,
+                p_u8: 0
+            };
+            sendJson(msg);
+            logTerminal(`[TX] 发送 SYS 系统命令: ${name} (0x${code.toString(16).toUpperCase().padStart(2, '0')})`, "tx");
+        }
+
+        // 设置去抖滤波
+        function sendDbnc() {
+            const ms = parseFloat(document.getElementById("dbncVal").value);
+            // 硬件每单位代表 0.32768 ms
+            const val_reg = Math.round(ms / 0.32768) & 0xFF;
+            const msg = {
+                cmd: "sys_command",
+                code: 0x20, // SYS_SET_DBNC
+                p_u8: val_reg
+            };
+            sendJson(msg);
+            logTerminal(`[TX] 发送去抖滤波命令: 时长 = ${ms}ms, 转换寄存器 = 0x${val_reg.toString(16).toUpperCase()}`, "tx");
+        }
+
+        // 切换单只 DO 继电状态
+        function toggleDo(idx) {
+            const btn = document.getElementById(`do-${idx}`);
+            btn.classList.toggle("checked");
+            if (btn.classList.contains("checked")) {
+                btn.querySelector(".ch-label").innerText = "开";
+                activeDoMask |= (1 << idx);
+            } else {
+                btn.querySelector(".ch-label").innerText = "关";
+                activeDoMask &= ~(1 << idx);
+            }
+        }
+
+        // 下发 DO 状态掩码
+        function sendDoMask() {
+            const msg = {
+                cmd: "sys_command",
+                code: 0x21, // SYS_SET_DO
+                p_u8: activeDoMask
+            };
+            sendJson(msg);
+            logTerminal(`[TX] 发送 DO 继电器掩码指令: 0x${activeDoMask.toString(16).toUpperCase().padStart(2, '0')} (二进制: ${activeDoMask.toString(2).padStart(8, '0')})`, "tx");
+        }
+
+        // 下发相位门控 Phase Gate
+        function sendPhaseGate() {
+            const ch = parseInt(document.getElementById("gateCh").value);
+            const isRaw = document.getElementById("gateIsRaw").checked;
+            const phaseVal = parseFloat(document.getElementById("gatePhase").value);
+
+            const msg = {
+                cmd: "phase_gate",
+                ch: ch,
+                is_raw: isRaw,
+                phase: phaseVal
+            };
+            sendJson(msg);
+            logTerminal(`[TX] 发送 Phase Gate 相位门控: 通道=${ch}, 输入相位=${phaseVal} (${isRaw ? 'RAW寄存器' : '角度(度)'})`, "tx");
+        }
+
+        // 下发参数级命令 DDS PARAM
+        function sendParamCommand() {
+            const codeHex = document.getElementById("paramCode").value;
+            const code = parseInt(codeHex, 16);
+            const layer = parseInt(document.getElementById("layerIdx").value);
+            const isRaw = document.getElementById("paramIsRaw").checked;
+            const p1 = parseFloat(document.getElementById("p1Val").value);
+            const p2 = parseFloat(document.getElementById("p2Val").value);
+            
+            const selected = getSelectedChannels();
+            if (selected.list.length === 0) {
+                logTerminal("发送失败：请至少勾选一个要作用的目标通道！", "err");
+                return;
+            }
+
+            let msg = {
+                cmd: "param_command",
+                code: code,
+                layer: layer,
+                is_raw: isRaw
+            };
+
+            if (isRaw) {
+                msg.ch_mask = selected.mask;
+                msg.p1 = Math.round(p1);
+                msg.p2 = Math.round(p2);
+                logTerminal(`[TX] 下发 RAW 参数帧: 命令=0x${code.toString(16).toUpperCase()}, 掩码=0x${selected.mask.toString(16).toUpperCase()}, P1=0x${msg.p1.toString(16).toUpperCase()}, P2=0x${msg.p2.toString(16).toUpperCase()}`, "tx");
+            } else {
+                // 物理模式下发：组织成 {"api_ch": [amplitude, phase_or_freq]} 并由后端进行 Calibration 动态转换
+                msg.phys = {};
+                selected.list.forEach(ch => {
+                    let apiCh = chMapping.indexOf(ch);
+                    if (apiCh === -1) apiCh = ch; // Fallback
+                    msg.phys[apiCh] = [p1, p2];
+                });
+                logTerminal(`[TX] 下发物理参数帧: 命令=0x${code.toString(16).toUpperCase()}, 层级=0x${layer.toString(16).toUpperCase()}, 作用通道=[${selected.list.join(', ')}], 幅值=${p1}, 相位/频率=${p2}`, "tx");
+            }
+
+            sendJson(msg);
+        }
+
+        // 输入参数安全性检查 (防 signed amplitude 溢出反向波形警报)
+        function checkParamSafety() {
+            const isRaw = document.getElementById("paramIsRaw").checked;
+            const p1 = parseFloat(document.getElementById("p1Val").value);
+            const layer = parseInt(document.getElementById("layerIdx").value);
+            const selected = getSelectedChannels();
+            const warningBanner = document.getElementById("safetyWarning");
+
+            if (isRaw) {
+                // 寄存器模式下：如果输入大于 32767 且作用在 AC 层
+                if (layer !== 255 && p1 > 32767) {
+                    warningBanner.style.display = "block";
+                    return;
+                }
+            } else {
+                // 物理量模式下：我们需要推算是否有任何通道计算出的 reg 越界
+                if (layer !== 255) {
+                    let hasDanger = false;
+                    selected.list.forEach(ch => {
+                        let isCur = iChannels.includes(ch);
+                        let scale = isCur ? CURRENT : VOLTAGE;
+                        let regVal = Math.round(p1 * scale);
+                        if (regVal > 32767) {
+                            hasDanger = true;
+                        }
+                    });
+                    if (hasDanger) {
+                        warningBanner.style.display = "block";
+                        return;
+                    }
+                }
+            }
+            warningBanner.style.display = "none";
+        }
+
+        // 表单交互更新提示
+        function onLayerChange() {
+            const layer = parseInt(document.getElementById("layerIdx").value);
+            const p2Label = document.getElementById("p2Label");
+            const p2Unit = document.getElementById("p2Unit");
+            const p2Input = document.getElementById("p2Val");
+            const isRaw = document.getElementById("paramIsRaw").checked;
+
+            if (layer === 255) {
+                // DC 偏置和基频层
+                p2Label.innerText = isRaw ? "主基准频率 (P2 / Raw U32)" : "主基准频率 (P2 / Frequency):";
+                p2Unit.innerText = isRaw ? "U32" : "Hz (赫兹)";
+                if (!isRaw && p2Input.value == 0.0) p2Input.value = 50.0;
+            } else {
+                // 交流谐波层
+                p2Label.innerText = isRaw ? "相位参数 (P2 / Raw U32)" : "相位参数 (P2 / Phase):";
+                p2Unit.innerText = isRaw ? "U32" : "° (角度 0-360)";
+                if (!isRaw && p2Input.value == 50.0) p2Input.value = 0.0;
+            }
+            checkParamSafety();
+        }
+
+        function toggleParamRaw() {
+            const isRaw = document.getElementById("paramIsRaw").checked;
+            const p1Label = document.getElementById("p1Label");
+            const p1Unit = document.getElementById("p1Unit");
+            const p1Input = document.getElementById("p1Val");
+            const p2Input = document.getElementById("p2Val");
+
+            if(isRaw) {
+                p1Label.innerText = "原始幅值参数 (P1 / Raw U32):";
+                p1Unit.innerText = "U32";
+                p1Input.step = "10000";
+                p2Input.step = "10000";
+            } else {
+                p1Label.innerText = "物理幅值参数 (P1 / Amplitude):";
+                p1Unit.innerText = "V / A";
+                p1Input.step = "0.1";
+                p1Input.value = "0.0";
+                p2Input.step = "1.0";
+                p2Input.value = "0.0";
+            }
+            onLayerChange();
+        }
+
+        function toggleGateRaw() {
+            const isRaw = document.getElementById("gateIsRaw").checked;
+            const gatePhaseLabel = document.getElementById("gatePhaseLabel");
+            const gatePhaseInput = document.getElementById("gatePhase");
+
+            if (isRaw) {
+                gatePhaseLabel.innerText = "参考相位寄存器值 (Phase / Raw U32):";
+                gatePhaseInput.step = "100000";
+                gatePhaseInput.value = "0";
+            } else {
+                gatePhaseLabel.innerText = "参考相位角度 (Phase / 角度 0-360):";
+                gatePhaseInput.step = "1.0";
+                gatePhaseInput.value = "0.0";
+            }
+        }
+
+        // 彩色虚拟终端功能
+        const termBody = document.getElementById("termBody");
+        function logTerminal(content, type="info") {
+            const now = new Date();
+            const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+            
+            let typeClass = "log-info";
+            let prefix = "[INFO]";
+            if (type === "tx") { typeClass = "log-tx"; prefix = "[TX] ◀"; }
+            else if (type === "rx") { typeClass = "log-rx"; prefix = "[RX] ▶"; }
+            else if (type === "err") { typeClass = "log-err"; prefix = "[WARN] ⚠️"; }
+
+            termBody.innerHTML += `
+                <div class="log-line">
+                    <span class="log-ts">[${timeStr}]</span>
+                    <span class="${typeClass}">${prefix} ${content}</span>
+                </div>
+            `;
+            termBody.scrollTop = termBody.scrollHeight;
+        }
+
+        function clearTerminal() {
+            termBody.innerHTML = `<div class="log-line"><span class="log-ts">[11:00:00]</span><span class="log-info">终端记录已清空。</span></div>`;
+        }
+
+        // 初始化网页
+        window.onload = () => {
+            initUI();
+            setChSelection('v');
+        };
+    </script>
+</body>
+</html>
