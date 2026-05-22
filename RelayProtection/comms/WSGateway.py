@@ -79,7 +79,9 @@ class WSGateway:
                         send = client.send
                         dumps = orjson.dumps
                         for frame in batch:
-                            data = dumps(frame).decode()
+                            # Offload CPU-bound orjson.dumps to background thread to prevent blocking main event loop
+                            data_bytes = await asyncio.to_thread(dumps, frame)
+                            data = data_bytes.decode()
                             self.logger.debug(f"[WS TX] {data}")
                             await send(data)
                         

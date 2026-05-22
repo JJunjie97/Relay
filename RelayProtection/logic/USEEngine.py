@@ -51,7 +51,6 @@ class USEEngine:
         self.sentCount = 0
         self.hwLock = asyncio.Lock()
 
-        self.t0 = 0.0
         self.diNow = 0
         self.diStart = 0
         self.diPrev = 0
@@ -66,6 +65,8 @@ class USEEngine:
         self._diMatchId = 0
 
         self.errorReason = None
+        self.upFrame = [HWCodec.FRAME_SYS_UPDATE]
+        self.syncFrame = [HWCodec.FRAME_SYS_SYNC]
 
 
     def start(self):
@@ -125,6 +126,9 @@ class USEEngine:
                 return -1
         return self.ackTs
 
+    async def setDo(self, doValue: int) -> int:
+        return await self.flush([HWCodec.BuildSystemFrame(HWCodec.SYS_SET_DO, doValue)])
+
     def spawnDo(self, t0: float):
         if not self.node.doActions: return
         self._doTask = self._spawn(self._doLoop(t0))
@@ -132,37 +136,23 @@ class USEEngine:
     async def _doLoop(self, t0: float):
         for packed in self.node.doActions:
             await asyncio.sleep(t0 + (((packed >> 8) & 0xFFFF) / 1000.0) - time.perf_counter())
-            doTs = await asyncio.shield(self.flush([HWCodec.BuildSystemFrame(HWCodec.SYS_SET_DO, packed & 0xFF)]))
+            doTs = await asyncio.shield(self.setDo(packed & 0xFF))
             self._spawn(self._emit([2, packed & 0xFF, doTs]))
 
-    def _prepTriggers(self):
-        n = self.node
-        self._timeoutS = n.timeoutMs / 1000.0 if n.timeoutMs is not None else None
-        self._timeoutId = n.timeoutId
-        dm = n.diMatchMask
-        if dm is not None:
-            self._diMask = dm & 0xFF
-            self._diIsAnd = bool(dm & 0x100)
-            self._diRef = (self.diPrev if dm & 0x200 else self.diStart) ^ (0xFF if dm & 0x400 else 0)
-            self._diMatchId = n.diMatchId
-        else:
-            self._diMask = 0
 
 
     def _emitUp(self, tick: int, tUp: int):
         self._spawn(self._emit([0, self.nodeId, tick, tUp]))
 
     def _consumeManualTrig(self) -> Optional[int]:
-        if self.trigTarget is not None:
-            tgt = self.trigTarget
+        if (tgt := self.trigTarget) is not None:
             self.trigTarget = None
             self.triggerEvent.clear()
             return tgt
         return None
 
     def _evalTrig(self) -> Optional[int]:
-        tgt = self._consumeManualTrig()
-        if tgt is not None: return tgt
+        if (tgt := self._consumeManualTrig()) is not None: return tgt
         if self._timeoutAt is not None and time.perf_counter() >= self._timeoutAt:
             return self._timeoutId
         if self._diMask:
@@ -173,25 +163,19 @@ class USEEngine:
 
     async def sleepWait(self, wake: float) -> Optional[int]:
         while True:
-            tgt = self._consumeManualTrig()
-            if tgt is not None: return tgt
-            remain = wake - time.perf_counter()
-            if remain <= 0.005:
+            if (tgt := self._consumeManualTrig()) is not None: return tgt
+            if (remain := wake - time.perf_counter()) <= 0.005:
                 await asyncio.sleep(0)
                 while time.perf_counter() < wake: pass
                 return self._consumeManualTrig()
-            self.triggerEvent.clear()
-            try: await asyncio.wait_for(self.triggerEvent.wait(), timeout=min(remain, 0.025))
-            except asyncio.TimeoutError: pass
+            await asyncio.sleep(min(remain, 0.025))
 
     async def sleep(self, wake: float) -> Optional[int]:
         if self._timeoutAt is not None and self._timeoutAt < wake:
             wake = self._timeoutAt
         while True:
-            r = self._evalTrig()
-            if r is not None: return r
-            remain = wake - time.perf_counter()
-            if remain <= 0.005:
+            if (r := self._evalTrig()) is not None: return r
+            if (remain := wake - time.perf_counter()) <= 0.005:
                 await asyncio.sleep(0)
                 while time.perf_counter() < wake: pass
                 return self._evalTrig()
@@ -199,104 +183,72 @@ class USEEngine:
             try: await asyncio.wait_for(self.triggerEvent.wait(), timeout=min(remain, 0.025))
             except asyncio.TimeoutError: pass
 
+    def startTimeout(self, t: float):
+        self._timeoutAt = t + self._timeoutS if self._timeoutS else None
+
+    async def sleepForever(self, t: float) -> int:
+        return r if (r := await self.sleep(t + 1000)) is not None else 0xFFFF
+
     async def runStatic(self) -> int:
-        tUp = await self.flush(self.node.baseFrame + [HWCodec.FRAME_SYS_UPDATE])
-        self.t0 = time.perf_counter()
-        self._timeoutAt = self.t0 + self._timeoutS if self._timeoutS else None
-        self.spawnDo(self.t0)
-        self._emitUp(0, tUp)
-        r = await self.sleep(self.t0 + 1000)
-        return r if r is not None else 0xFFFF
+        self._emitUp(0, await self.flush(self.node.baseFrame + self.upFrame))
+        t = time.perf_counter()
+        self.spawnDo(t)
+        self.startTimeout(t)
+        return await self.sleepForever(t)
 
     async def runSweep(self) -> int:
-        if not self.node.stepFrames:
-            return await self.runStatic()
+        if not self.node.stepFrames: return await self.runStatic()
+
         count = len(self.node.stepFrames)
-        tUp = await self.flush(self.node.baseFrame + [HWCodec.FRAME_SYS_UPDATE])
-        self.t0 = time.perf_counter()
-        self._timeoutAt = self.t0 + self._timeoutS if self._timeoutS else None
-        self.spawnDo(self.t0)
-        await self.flush([HWCodec.FRAME_SYS_SYNC])
-        await self.flush(self.node.stepFrames[0])
-        self._emitUp(0, tUp)
-
         iv = self.node.interval / 1000.0
-        tSw = self.t0 + iv
-        r = await self.sleep(tSw)
-        if r is not None: return r
 
-        for tick in range(1, count):
-            tUp = await self.flush([HWCodec.FRAME_SYS_UPDATE])
-            await self.flush(self.node.stepFrames[tick])
-            self._emitUp(tick, tUp)
+        self._emitUp(0, await self.flush(self.node.baseFrame + self.upFrame))
+        t = time.perf_counter()
+        self.spawnDo(t)
+        self.startTimeout(t)
+        await self.flush(self.syncFrame + self.node.stepFrames[0])
+        if (r := await self.sleep(t := t + iv)) is not None: return r
 
-            tSw += iv
-            r = await self.sleep(tSw)
-            if r is not None: return r
-
-        tUp = await self.flush([HWCodec.FRAME_SYS_UPDATE])
-        self._emitUp(count, tUp)
-        tSw += iv
-        r = await self.sleep(tSw)
-        if r is not None: return r
+        for tick in range(1, count + 1):
+            self._emitUp(tick, await self.flush(self.upFrame))
+            if tick < count:
+                await self.flush(self.node.stepFrames[tick])
+            if (r := await self.sleep(t := t + iv)) is not None: return r
 
         if self.node.countOverId is not None:
             return self.node.countOverId
-        r = await self.sleep(self.t0 + 1000)
-        return r if r is not None else 0xFFFF
+        return await self.sleepForever(t)
 
     async def runReset(self) -> int:
         count = len(self.node.stepFrames)
+        enterDo, exitDo = self.node.resetDo & 0xFF, (self.node.resetDo >> 8) & 0xFF
+        iv, rt = self.node.interval / 1000.0, self.node.resetTime / 1000.0
 
-        enterDo = self.node.resetDo & 0xFF
-        exitDo = (self.node.resetDo >> 8) & 0xFF
-
-        tUp = await self.flush(self.node.baseFrame + self.node.resetFrame + [HWCodec.FRAME_SYS_UPDATE])
-        self.t0 = time.perf_counter()
-        self._timeoutAt = self.t0 + self._timeoutS if self._timeoutS else None
-
-        await self.flush([HWCodec.BuildSystemFrame(HWCodec.SYS_SET_DO, enterDo)])
-        self.spawnDo(self.t0)
-
+        self._emitUp(-1, await self.flush(self.node.baseFrame + self.node.resetFrame + self.upFrame))
+        t = time.perf_counter()
+        await self.setDo(enterDo)
         await self.flush(self.node.baseFrame)
-        self._emitUp(-1, tUp)
+        self.startTimeout(t)
+        # self.spawnDo(t)
+        if (r := await self.sleepWait(t := t + rt)) is not None: return r
 
-        iv = self.node.interval / 1000.0
-        rt = self.node.resetTime / 1000.0
-        tSw = self.t0 + rt
-        r = await self.sleepWait(tSw)
-        if r is not None: return r
-
-        tUp = await self.flush([HWCodec.FRAME_SYS_UPDATE])
-        await self.flush([HWCodec.BuildSystemFrame(HWCodec.SYS_SET_DO, exitDo)])
-        self._emitUp(0, tUp)
-
-        tSw += iv
-        r = await self.sleep(tSw)
-        if r is not None: return r
+        self._emitUp(0, await self.flush(self.upFrame))
+        await self.setDo(exitDo)
+        if (r := await self.sleep(t := t + iv)) is not None: return r
 
         for tick in range(1, count + 1):
-            tUp = await self.flush([HWCodec.FRAME_SYS_UPDATE])
-            await self.flush([HWCodec.BuildSystemFrame(HWCodec.SYS_SET_DO, enterDo)])
+            self._emitUp(-1, await self.flush(self.upFrame))
+            await self.setDo(enterDo)
             await self.flush(self.node.stepFrames[tick-1])
-            self._emitUp(-1, tUp)
+            if (r := await self.sleepWait(t := t + rt)) is not None: return r
 
-            tSw += rt
-            r = await self.sleepWait(tSw)
-            if r is not None: return r
-
-            tUp = await self.flush([HWCodec.FRAME_SYS_UPDATE])
-            await self.flush([HWCodec.BuildSystemFrame(HWCodec.SYS_SET_DO, exitDo)])
-            self._emitUp(tick, tUp)
-
-            tSw += iv
-            r = await self.sleep(tSw)
-            if r is not None: return r
+            self._emitUp(tick, await self.flush(self.upFrame))
+            await self.setDo(exitDo)
+            if (r := await self.sleep(t := t + iv)) is not None: return r
 
         if self.node.countOverId is not None:
             return self.node.countOverId
-        r = await self.sleep(self.t0 + 1000)
-        return r if r is not None else 0xFFFF
+        return await self.sleepForever(t)
 
     async def runDcComp(self) -> int:
         if not self.node.stepFrames or not self.node.gateFrames:
@@ -307,65 +259,71 @@ class USEEngine:
         
         async with self.hwLock:
             target = self.sentCount + len(burst)
-            full = burst + [HWCodec.FRAME_SYS_SYNC] + self.node.stepFrames[1]
+            full = burst + self.syncFrame + self.node.stepFrames[1]
             self.flushNoAck(full)
-            tUp = await self.waitForAck(target)
+            self._emitUp(0, await self.waitForAck(target))
 
-        self.t0 = time.perf_counter()
-        self._timeoutAt = self.t0 + self._timeoutS if self._timeoutS else None
-        self.spawnDo(self.t0)
-        self._emitUp(0, tUp)
+        t = time.perf_counter()
+        self.startTimeout(t)
+        self.spawnDo(t)
 
-        r = self._evalTrig()
-        if r is not None: return r
+        if (r := self._evalTrig()) is not None: return r
 
         for N in range(2, count):
             async with self.hwLock:
                 target = self.sentCount + len(self.node.gateFrames[N-1])
                 batch = self.node.gateFrames[N-1] + self.node.stepFrames[N]
                 self.flushNoAck(batch)
-                tUp = await self.waitForAck(target)
-            self._emitUp(N - 1, tUp)
+                self._emitUp(N - 1, await self.waitForAck(target))
 
-            r = self._evalTrig()
-            if r is not None: return r
+            if (r := self._evalTrig()) is not None: return r
 
         async with self.hwLock:
             target = self.sentCount + len(self.node.gateFrames[count-1])
             self.flushNoAck(self.node.gateFrames[count-1])
-            tUp = await self.waitForAck(target)
-        self._emitUp(count - 1, tUp)
+            self._emitUp(count - 1, await self.waitForAck(target))
 
-        r = await self.sleep(self.t0 + 1000)
-        return r if r is not None else 0xFFFF
+        return await self.sleepForever(t)
 
     async def coreLoop(self):
         while True:
-            self.node = self.nodes.get(self.nodeId)
-            if self.node is None:
+            if (n := self.nodes.get(self.nodeId)) is None:
                 self.nodeId = 0xFFFF
-                self.node = self.nodes[0xFFFF]
+                n = self.nodes[0xFFFF]
+            self.node = n
 
             if self._doTask:
                 self._doTask.cancel()
                 self._doTask = None
-            await self.flush([HWCodec.FRAME_SYS_SYNC])
-            self.diPrev = self.diNow
-            self._prepTriggers()
 
-            if self.node.mode == 1:
-                nextId = await self.runStatic()
-            elif self.node.mode == 2:
-                nextId = await self.runSweep()
-            elif self.node.mode == 3:
-                nextId = await self.runReset()
-            elif self.node.mode == 4:
-                nextId = await self.runDcComp()
+            await self.flush(self.syncFrame)
+
+            self.diPrev = self.diNow
+
+            if (tMs := n.timeoutMs) is not None:
+                self._timeoutS = tMs / 1000.0
+                self._timeoutId = n.timeoutId
+            else:
+                self._timeoutS = None
+
+            if (dm := n.diMatchMask) is not None:
+                self._diMask = dm & 0xFF
+                self._diIsAnd = bool(dm & 0x100)
+                self._diRef = (self.diPrev if dm & 0x200 else self.diStart) ^ (0xFF if dm & 0x400 else 0)
+                self._diMatchId = n.diMatchId
+            else:
+                self._diMask = 0
+
+            match n.mode:
+                case 1: nextId = await self.runStatic()
+                case 2: nextId = await self.runSweep()
+                case 3: nextId = await self.runReset()
+                # case 4: nextId = await self.runDcComp()
+                case _: nextId = 0xFFFF
 
             if self.nodeId == 0x0000: self.diStart = self.diNow
             if nextId == 0xFFFF and self.nodeId != 0xFFFF:
                 self.nodes = {0x0000: self.nodes[0x0000], 0xFFFF: self.nodes[0xFFFF]}
                 self.ackCounter = 0
                 self.sentCount = 0
-                self.ackTs = 0
             self.nodeId = nextId

@@ -261,8 +261,8 @@ async def test_reset(engine, ctrl):
     print("  TEST: Reset Sweep (Mode 3) — ch0 steps +10V, resetTime=200ms")
     print("=" * 60)
 
-    base = make_full_base([(0, 0.0, 0.0)])
-    reset_base = make_full_base([(0, 0.0, 0.0)])
+    base = make_full_base([(0, 10, 0.0)])
+    reset_base = make_full_base([(0, 0, 0.0)])
     step = make_step_reg(0, 10.0)
 
     payload = {
@@ -306,12 +306,10 @@ async def main():
     elif mode == "reset":
         await test_reset(engine, ctrl)
     elif mode == "all":
-        await test_sweep(engine, ctrl)
-        await asyncio.sleep(1.0)
-        await test_static(engine, ctrl)
-        await asyncio.sleep(1.0)
-        await test_sweep(engine, ctrl)
-        await asyncio.sleep(1.0)
+        # await test_sweep(engine, ctrl)
+        # await asyncio.sleep(1.0)
+        # await test_static(engine, ctrl)
+        # await asyncio.sleep(1.0)
         await test_reset(engine, ctrl)
     else:
         print(f"Unknown mode: {mode}")

@@ -3,8 +3,8 @@ import os
 import time
 
 try:
-    os.sched_setaffinity(0, {3})
-    print("CPU Affinity locked to Core 3.")
+    os.sched_setaffinity(0, {0, 1, 2})
+    print("CPU Affinity locked to Cores 0, 1, 2.")
 except AttributeError:
     pass
 
@@ -17,9 +17,8 @@ except ImportError:
 
 os.environ["USE_LOG_LEVEL"] = "DEBUG"
 
-from comms.HWGateway import HWGateway
 from comms.WSGateway import WSGateway
-from logic.USEEngine import USEEngine
+from logic.EngineProxy import EngineProxy
 from logic.TestCtrl import TestCtrl
 from logic.FPGACodec import HWCodec
 from logic.HWProtect import HWProtect
@@ -31,24 +30,24 @@ logger = GetLogger("SysEngine")
 async def main() -> None:
     logger.info("Initialization started...")
     os.system(f"fuser -k {WSGateway.PORT}/tcp >/dev/null 2>&1 || true")
-    os.system(f"fuser -k {HWGateway.PORT} >/dev/null 2>&1 || true")
+    # Subprocess runs on port 8081, make sure it is clean
+    os.system(f"fuser -k 8081/tcp >/dev/null 2>&1 || true")
     time.sleep(0.5)
 
-    hwGateway = HWGateway()
     wsGateway = WSGateway()
     hwProtect = HWProtect()
 
-    engine = USEEngine(hwGateway, None)
-    hwGateway.engine = engine
+    # Use EngineProxy instead of USEEngine
+    engine = EngineProxy(None, None)
     testCtrl = TestCtrl(engine, hwProtect, wsGateway.SendToClient)
     engine._emit = testCtrl.onEvent
 
     wsGateway.dispatcher = testCtrl
     hwProtect.testCtrl = testCtrl
 
-    asyncio.create_task(hwGateway.Connect())
-    await asyncio.sleep(1.0)
+    # Start EngineProxy which launches the HwEngineProcess child process on Core 3
     engine.start()
+    await asyncio.sleep(1.0)
 
     async with wsGateway.StartServer():
         logger.info("All gateways online. Awaiting commands...")
@@ -59,12 +58,6 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.warning("\nCtrl+C detected. Triggering hardware hard-reset...")
-        try:
-            import serial
-            with serial.Serial(HWGateway.PORT, HWGateway.BAUDRATE, timeout=1) as ser:
-                ser.write(HWCodec.FRAME_SYS_RESET)
-        except Exception as e:
-            logger.error(f"Emergency Serial reset failed: {e}")
-        finally:
-            logger.info("Hardware resettled. Service terminated.")
+        logger.warning("\nCtrl+C detected. Terminating system...")
+        logger.info("Service terminated.")
+
