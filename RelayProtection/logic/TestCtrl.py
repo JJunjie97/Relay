@@ -40,12 +40,9 @@ class TestCtrl:
 
     def _initBaseNode(self):
         baselineDict = {hwCh: {0: list(calib.PhysToReg(hwCh, 0, 0.0, 50.0))} for hwCh in HWConfig.V_CHANNELS + HWConfig.I_CHANNELS}
-        self.engine.nodes[0x0000].baseFrame = [
-            HWCodec.FRAME_SYS_RESET
-        ] + self._compileDictToFrames(baselineDict, HWCodec.DDS_WR_SHADOW) + [
-            HWCodec.FRAME_SYS_START,
-            HWCodec.BuildSystemFrame(HWCodec.SYS_SET_DBNC, 61)
-        ]
+        self.engine.nodes[0x0000].baseFrame = [HWCodec.FRAME_SYS_RESET]
+        + self._compileDictToFrames(baselineDict, HWCodec.DDS_WR_SHADOW)
+        + [HWCodec.FRAME_SYS_START,HWCodec.BuildSystemFrame(HWCodec.SYS_SET_DBNC, 61)]
         logger.info("Initialized base node 0x0000 with 12-channel calibration")
 
     async def onEvent(self, evt):
