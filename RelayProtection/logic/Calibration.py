@@ -63,6 +63,6 @@ class Calibration:
         else:
             amp = aCalib / self._factorsAc[chIdx]
             pPhys = (((pRegU32 >> 16) & 0xFFFF) ^ 0x8000) / HWConfig.PHASE
-        return round(amp, 4), round(pPhys, 4)
+        return round(amp, 3), round(pPhys, 2)
 
 calib = Calibration()
