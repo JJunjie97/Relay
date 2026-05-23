@@ -44,6 +44,7 @@ class ApiSweepTest(BaseApi):
     def _onSetup(self, params: Dict[str, Any]):
         # ── System config ──
         sys_cfg = params.get("sys", {})
+        self.mode = sys_cfg.get("mode", 1)
         self.statics = params.get("statics", {})
         self.steps = params.get("steps", {})
         self.count = params.get("count", 1)
@@ -102,6 +103,19 @@ class ApiSweepTest(BaseApi):
 
         # ── Build all run nodes ──
         nodes = {}
+
+        if self.mode == 0:
+            self._manualActiveNode = 1
+            n1 = ApiNodeData(mode=1)
+            n1.base = reg_statics
+            if self.doMask:
+                n1.doActions = [self.doMask & 0xFF]
+            nodes[1] = n1
+            self._nodesMap = nodes
+            self._startNode = 1
+            self._fsmState = "PREHEAT"
+            asyncio.create_task(self._preheatAndStart())
+            return
 
         # Node 1: Pre-test reset (optional static)
         if self.enablePreTestReset:
@@ -293,6 +307,23 @@ class ApiSweepTest(BaseApi):
         if self._lastValueTs > 0:
             dt_ms = round(((hw_ts - self._lastValueTs) & 0xFFFFFFFF) / 1000.0, 1)
 
+        if self.mode == 0:
+            # Manual Mode: purely driven by Python DI logic, report immediately
+            if not self._tripTime:
+                self._tripTime = dt_ms
+                self._tripVals = self.statics  # Static manual holding values
+                logger.info(f"Manual DI Trip: time={dt_ms}ms")
+                self.ctrl.sendReport({"tripTime": self._tripTime, "tripValues": self._tripVals})
+            elif self._tripTime and not self._returnTime:
+                self._returnTime = dt_ms
+                self._returnVals = self.statics
+                logger.info(f"Manual DI Return: time={dt_ms}ms")
+                self.ctrl.sendReport({
+                    "tripTime": self._tripTime, "tripValues": self._tripVals,
+                    "returnTime": self._returnTime, "returnValues": self._returnVals
+                })
+            return
+
         if self._phase == "ACTION" and self._tripTime is None:
             self._tripTime = dt_ms
             self._tripVals = self._physicsAt(self._lastTick)
@@ -332,3 +363,35 @@ class ApiSweepTest(BaseApi):
                     pass
 
         self.ctrl.sendReport(report)
+
+    def onWebCommand(self, msg: Dict[str, Any]):
+        cmd = msg.get("cmd")
+        
+        if cmd == "update_static" and getattr(self, "mode", 1) == 0:
+            new_statics = msg.get("static", {})
+            # Cache for reporting
+            for ch, layers in new_statics.items():
+                if ch not in self.statics:
+                    self.statics[ch] = {}
+                for l, vals in layers.items():
+                    self.statics[ch][l] = vals
+
+            reg_statics = self.physDictToReg(new_statics)
+            
+            # Ping-Pong logic
+            next_node_id = 2 if self._manualActiveNode == 1 else 1
+            n = ApiNodeData(mode=1)
+            n.base = reg_statics
+            if self.doMask:
+                n.doActions = [self.doMask & 0xFF]
+            
+            # Reset DI tracking on manual update
+            self._tripTime = None
+            self._tripVals = None
+            self._returnTime = None
+            self._returnVals = None
+            
+            logger.info(f"Manual Mode: update_static received, Ping-Pong to Node {next_node_id}")
+            self.ctrl.upsertNodes({next_node_id: n})
+            self.ctrl.trigNode(next_node_id)
+            self._manualActiveNode = next_node_id
