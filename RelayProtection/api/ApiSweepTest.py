@@ -26,6 +26,19 @@ logger = logging.getLogger("ApiSweepTest")
 class ApiSweepTest(BaseApi):
     MODULE_KEYS = ["ac_test", "dc_test", "harmonic_test", "steps_gradient_test", "acdc_test"]
 
+    def __init__(self):
+        super().__init__()
+        self._phase = "ACTION"
+        self._tripTime = None
+        self._tripVals = None
+        self._returnTime = None
+        self._returnVals = None
+        self._peakTick = 0
+        self._lastTick = 0
+        self._lastValueTs = 0
+        self._lastDi = 0
+        self._fsmState = "IDLE"
+
     # ── Setup ──
 
     def _onSetup(self, params: Dict[str, Any]):

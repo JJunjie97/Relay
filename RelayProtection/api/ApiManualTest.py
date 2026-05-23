@@ -177,9 +177,9 @@ class ApiManualTest(BaseApi):
     # =========================================================================
 
     def _stringify_keys(self, d: dict) -> dict:
-        """Convert all integer keys in nested emulated registers dict to strings for orjson compatibility."""
+        """Convert all integer keys in nested emulated registers dict to strings and reverse-map hardware channels for the frontend."""
         return {
-            str(ch): {str(layer): val for layer, val in layers.items()}
+            str(HWConfig.UnmapChannel(ch)): {str(layer): val for layer, val in layers.items()}
             for ch, layers in d.items()
         }
 
@@ -204,8 +204,7 @@ class ApiManualTest(BaseApi):
         self.sim_active = {ch: {slot: [0, 0] for slot in range(64)} for ch in range(16)}
         
         # Reset matching hardware zero calibration preloads
-        for ch_idx in range(12):
-            hw_ch = HWConfig.MapChannel(ch_idx)
+        for hw_ch in HWConfig.ACTIVE_CHANNELS:
             dc_amp_reg, freq_reg = calib.PhysToReg(hw_ch, 0, 0.0, 50.0)
             self.sim_base[hw_ch][0] = [dc_amp_reg, freq_reg]
             self.sim_shadow[hw_ch][0] = [dc_amp_reg, freq_reg]

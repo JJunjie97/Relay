@@ -47,7 +47,7 @@ def make_step_reg(ch_idx, delta_amp_v, delta_phase_deg=0.0):
     Returns: {hw_ch: {layer: [delta_amp_reg, delta_phase_reg]}}
     """
     hw_ch = HWConfig.MapChannel(ch_idx)
-    da_reg, dp_reg = calib.PhysToReg(hw_ch, 1, delta_amp_v, delta_phase_deg, is_delta=True)
+    da_reg, dp_reg = calib.PhysToReg(hw_ch, 1, delta_amp_v, delta_phase_deg, isDelta=True)
     return {hw_ch: {1: [da_reg, dp_reg]}}
 
 

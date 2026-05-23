@@ -27,6 +27,7 @@ class ApiNodeData:
     diMatchId: Optional[int] = None
     timeoutMs: Optional[int] = None
     timeoutId: Optional[int] = None
+    
 class BaseApi:
     def __init__(self):
         self.ctrl = None
@@ -55,8 +56,7 @@ class BaseApi:
         }
 
     def fillMissingChannels(self, static_dict: Dict[int, Dict[int, List[int]]], freq_hz: float = 50.0) -> Dict[int, Dict[int, List[int]]]:
-        for ch_idx in range(16):
-            hw_ch = HWConfig.MapChannel(ch_idx)
+        for hw_ch in HWConfig.ACTIVE_CHANNELS:
             if hw_ch not in static_dict:
                 dc_amp_reg, freq_reg = calib.PhysToReg(hw_ch, 0, 0.0, freq_hz)
                 static_dict[hw_ch] = {0: [dc_amp_reg, freq_reg]}
