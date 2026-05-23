@@ -85,7 +85,7 @@ class ApiSweepTest(BaseApi):
         self._fsmState = "WAIT_NODE_0"
 
         # ── Compile registers ──
-        reg_statics = self.fillMissingChannels(self.physDictToReg(self.statics), 50.0)
+        reg_statics = self.physDictToReg(self.statics)
         reg_steps_fwd = self.physDictToReg(self.steps, is_delta=True)
 
         # Reverse steps (negate all deltas)
@@ -106,9 +106,7 @@ class ApiSweepTest(BaseApi):
         # Node 1: Pre-test reset (optional static)
         if self.enablePreTestReset:
             n1 = ApiNodeData(mode=1)
-            n1.base = self.fillMissingChannels(
-                self.physDictToReg(full_reset_phys), 50.0
-            )
+            n1.base = self.physDictToReg(full_reset_phys)
             n1.timeoutMs = self.preTestResetTime
             n1.timeoutId = 2
             if self.doMask:

@@ -61,38 +61,14 @@ class BaseApi:
         self.isActive = False
         self._onStop()
 
-    def buildChannelReg(self, ch_idx: int, amplitude: float, angle_deg: float, freq_hz: float) -> Tuple[int, Dict[int, List[int]]]:
-        hw_ch = HWConfig.MapChannel(ch_idx)
-        dc_amp_reg, freq_reg = calib.PhysToReg(hw_ch, 0, 0.0, freq_hz)
-        ac_amp_reg, phase_reg = calib.PhysToReg(hw_ch, 1, amplitude, angle_deg)
-        
-
-        return hw_ch, {
-            0: [dc_amp_reg, freq_reg],
-            1: [ac_amp_reg, phase_reg]
-        }
-
-    def fillMissingChannels(self, static_dict: Dict[int, Dict[int, List[int]]], freq_hz: float = 50.0) -> Dict[int, Dict[int, List[int]]]:
-        for hw_ch in HWConfig.ACTIVE_CHANNELS:
-            if hw_ch not in static_dict:
-                dc_amp_reg, freq_reg = calib.PhysToReg(hw_ch, 0, 0.0, freq_hz)
-                static_dict[hw_ch] = {0: [dc_amp_reg, freq_reg]}
-            elif 0 not in static_dict[hw_ch]:
-                dc_amp_reg, freq_reg = calib.PhysToReg(hw_ch, 0, 0.0, freq_hz)
-                static_dict[hw_ch][0] = [dc_amp_reg, freq_reg]
-        return static_dict
-
     def physDictToReg(self, phys_dict: Dict[str, Dict[str, List[float]]], is_delta: bool = False) -> Dict[int, Dict[int, List[int]]]:
-        reg_dict = {}
-        for ch_str, layers in phys_dict.items():
-            ch_idx = int(ch_str)
-            hw_ch = HWConfig.MapChannel(ch_idx)
-            reg_dict[hw_ch] = {}
-            for l_str, vals in layers.items():
-                l_idx = int(l_str)
-                a_reg, p_reg = calib.PhysToReg(hw_ch, l_idx, vals[0], vals[1], is_delta)
-                reg_dict[hw_ch][l_idx] = [a_reg, p_reg]
-        return reg_dict
+        return {
+            (hw_ch := HWConfig.MapChannel(int(ch_str))): {
+                int(l_str): list(calib.PhysToReg(hw_ch, int(l_str), vals[0], vals[1], is_delta))
+                for l_str, vals in layers.items()
+            }
+            for ch_str, layers in phys_dict.items()
+        }
 
     def _onSetup(self, params: Dict[str, Any]):
         pass
