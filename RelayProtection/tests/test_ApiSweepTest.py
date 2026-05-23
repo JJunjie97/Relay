@@ -297,12 +297,13 @@ async def test_bidirectional_action_return(engine, ctrl, ws):
         "module": "ac_test",
         "params": {
             "sys": {
+                "mode":1,
                 "changeMode": 1,
                 "returnMode": 0,
                 "stepTime": 500,
                 "logicMask": 255,
             },
-            "statics": {"0": {"1": [10.0, 0.0]}},
+            "statics": {"0": {"0": [0.0, 50.0],"1": [10.0, 0.0]}},
             "steps": {"0": {"1": [10.0, 0.0]}},
             "count": 5,
             "payload": {
@@ -320,6 +321,55 @@ async def test_bidirectional_action_return(engine, ctrl, ws):
     print(f"\n>>> Running for {total:.1f}s. Forward sweep with resets...")
     await asyncio.sleep(total)
     print(">>> Bidirectional action return test done.\n")
+
+
+async def test_user_bug_payload(engine, ctrl, ws):
+    print(">>> Testing User Bug Payload...")
+    msg = {
+        "module": "ac_test",
+        "cmd": "start",
+        "params": {
+            "sys": {
+                "mode": 1,
+                "stepTime": 100,
+                "changeMode": 1,
+                "returnMode": 1,
+                "debounce": 10,
+                "doMask": 0,
+                "logicMask": 0,
+                "doCtrlMask": 0
+            },
+            "statics": {
+                "0": {"0": [0, 50], "1": [0, 0]},
+                "1": {"0": [0, 50], "1": [81.6484, 240.0018]},
+                "2": {"0": [0, 50], "1": [81.6484, 119.9982]},
+                "3": {"0": [0, 50], "1": [81.6484, 0]},
+                "4": {"0": [0, 50], "1": [81.6484, 240.0018]},
+                "5": {"0": [0, 50], "1": [81.6484, 119.9982]},
+                "6": {"0": [0, 50], "1": [0, 0]},
+                "7": {"0": [0, 50], "1": [0, 240.0018]},
+                "8": {"0": [0, 50], "1": [0, 119.9982]},
+                "9": {"0": [0, 50], "1": [0, 0]},
+                "10": {"0": [0, 50], "1": [0, 240.0018]},
+                "11": {"0": [0, 50], "1": [0, 119.9982]}
+            },
+            "steps": {"0": {"1": [1, 0]}},
+            "count": 10,
+            "payload": {
+                "enableStepReset": False,
+                "stepResetMode": 0,
+                "stepResetTime": 100,
+                "enablePreTestReset": False,
+                "preTestResetTime": 0,
+                "resetTableData": {}
+            }
+        }
+    }
+
+    await ctrl.startTest(msg)
+    await asyncio.sleep(3)
+    ctrl.stopTest()
+    print(">>> User Bug Payload test done.\n")
 
 
 # ── Main ──
@@ -340,16 +390,19 @@ async def main():
             await test_pre_test_reset(engine, ctrl, ws)
         elif mode == "action":
             await test_bidirectional_action_return(engine, ctrl, ws)
+            await test_user_bug_payload(engine, ctrl, ws)
         elif mode == "all":
-            await test_full_sweep(engine, ctrl, ws)
-            await asyncio.sleep(1.0)
-            await test_single_direction(engine, ctrl, ws)
-            await asyncio.sleep(1.0)
-            await test_with_reset(engine, ctrl, ws)
-            await asyncio.sleep(1.0)
-            await test_pre_test_reset(engine, ctrl, ws)
-            await asyncio.sleep(1.0)
-            await test_bidirectional_action_return(engine, ctrl, ws)
+            # await test_full_sweep(engine, ctrl, ws)
+            # await asyncio.sleep(1.0)
+            # await test_single_direction(engine, ctrl, ws)
+            # await asyncio.sleep(1.0)
+            # await test_with_reset(engine, ctrl, ws)
+            # await asyncio.sleep(1.0)
+            # await test_pre_test_reset(engine, ctrl, ws)
+            # await asyncio.sleep(1.0)
+            # await test_bidirectional_action_return(engine, ctrl, ws)
+            # await asyncio.sleep(1.0)
+            await test_user_bug_payload(engine, ctrl, ws)
         else:
             print(f"Unknown mode: {mode}")
             print("Usage: python test_ApiSweepTest.py [full|single|reset|pre|action|all]")
@@ -364,3 +417,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+

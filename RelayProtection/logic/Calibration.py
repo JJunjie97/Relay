@@ -48,7 +48,7 @@ class Calibration:
                     amplitude * self._factorsAc[chIdx], 
                     chIdx in HWConfig.I_CHANNELS
                 ), 
-                HWConfig.ConvertPhaseToReg(freqOrPhase)
+                HWConfig.ConvertPhaseToReg(freqOrPhase + (0.0 if isDelta else 180.0))
             )
 
     def RegToPhys(self, chIdx: int, layerIdx: int, aRegU32: int, pRegU32: int) -> Tuple[float, float]:
@@ -62,7 +62,7 @@ class Calibration:
             pPhys = pRegU32 / HWConfig.FREQ
         else:
             amp = aCalib / self._factorsAc[chIdx]
-            pPhys = ((pRegU32 >> 16) & 0xFFFF) / HWConfig.PHASE
+            pPhys = (((pRegU32 >> 16) & 0xFFFF) ^ 0x8000) / HWConfig.PHASE
         return round(amp, 4), round(pPhys, 4)
 
 calib = Calibration()
