@@ -1,8 +1,7 @@
 import asyncio
 import time
-from typing import Dict
 from utils.SysLogger import GetLogger
-from logic.FPGACodec import HWConfig, HWCodec
+from logic.FPGACodec import HWConfig
 from gpiozero import DigitalOutputDevice, DigitalInputDevice
 
 logger = GetLogger("HWProtect")

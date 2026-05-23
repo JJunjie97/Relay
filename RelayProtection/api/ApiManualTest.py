@@ -12,8 +12,8 @@ Broadcasts full Base/Shadow/Active state grids to manual_test client in real-tim
 
 import logging
 import asyncio
-from typing import Dict, Any, List
-from api.BaseApi import BaseApi, ApiNodeData
+from typing import Dict, Any
+from api.BaseApi import BaseApi
 from logic.FPGACodec import HWCodec, HWConfig
 from logic.Calibration import calib
 

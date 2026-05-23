@@ -20,7 +20,6 @@ os.environ["USE_LOG_LEVEL"] = "DEBUG"
 from comms.WSGateway import WSGateway
 from logic.EngineProxy import EngineProxy
 from logic.TestCtrl import TestCtrl
-from logic.FPGACodec import HWCodec
 from logic.HWProtect import HWProtect
 from utils.SysLogger import GetLogger
 

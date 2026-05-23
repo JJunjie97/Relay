@@ -10,7 +10,10 @@ logger = logging.getLogger("Calibration")
 
 class Calibration:
     def __init__(self):
-        base = os.path.dirname(os.path.abspath(sys.argv[0] if getattr(sys, 'frozen', False) else os.path.join(__file__, "..")))
+        if "__compiled__" in globals():
+            base = os.path.dirname(os.path.abspath(sys.argv[0]))
+        else:
+            base = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         self.calibPath = os.path.join(base, "config", "calibration.json")
         self.calibData = {}
         self.LoadCalib()

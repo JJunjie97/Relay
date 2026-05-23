@@ -20,8 +20,6 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from logic.USEEngine import USEEngine
 from logic.TestCtrl import TestCtrl
-from logic.Calibration import calib
-from logic.FPGACodec import HWConfig, HWCodec
 
 logging.basicConfig(level=logging.DEBUG)
 

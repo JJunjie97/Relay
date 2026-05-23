@@ -1,9 +1,12 @@
 import logging
 from dataclasses import dataclass
 from typing import Dict, Any, List, Tuple, Optional
-
 from logic.Calibration import calib
 from logic.FPGACodec import HWConfig
+import pkgutil
+import importlib
+import inspect
+import api
 
 logger = logging.getLogger("BaseApi")
 
@@ -29,6 +32,20 @@ class ApiNodeData:
     timeoutId: Optional[int] = None
     
 class BaseApi:
+    @staticmethod
+    def create(module_name: str) -> 'BaseApi':
+        for _, name, _ in pkgutil.iter_modules(api.__path__):
+            if not name.startswith("Api") or name == "ApiNodeData":
+                continue
+            try:
+                mod = importlib.import_module(f"api.{name}")
+                for _, cls in inspect.getmembers(mod, lambda c: inspect.isclass(c) and issubclass(c, BaseApi) and c is not BaseApi):
+                    if module_name in (getattr(cls, "MODULE_KEYS", None) or [getattr(cls, "MODULE_KEY", None)]):
+                        return cls()
+            except Exception as e:
+                logger.warning(f"Failed to load API module {name}: {e}")
+        return None
+
     def __init__(self):
         self.ctrl = None
         self.isActive = False

@@ -2,8 +2,7 @@ import asyncio
 import time
 from typing import Dict
 from utils.SysLogger import GetLogger
-from api.BaseApi import ApiNodeData
-from api.ApiFactory import CreateApi
+from api.BaseApi import BaseApi, ApiNodeData
 from logic.Calibration import calib
 from logic.USEEngine import USENode
 from logic.FPGACodec import HWCodec, HWConfig
@@ -170,7 +169,7 @@ class TestCtrl:
         asyncio.ensure_future(self._wsSend(data))
 
     def _createApi(self, module: str):
-        api_instance = CreateApi(module)
+        api_instance = BaseApi.create(module)
         if not api_instance:
             logger.error(f"API module '{module}' not found.")
         return api_instance

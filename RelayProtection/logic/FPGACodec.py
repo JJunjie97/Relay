@@ -1,5 +1,5 @@
 import struct
-from typing import Tuple, Optional
+from typing import Tuple
 
 class HWConfig:
     MAX_VOLTAGE = 200
