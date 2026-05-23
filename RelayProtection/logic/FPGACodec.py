@@ -17,6 +17,7 @@ class HWConfig:
     V_CHANNELS = (0, 2, 4, 6, 8, 10)
     I_CHANNELS = (1, 3, 5, 7, 9, 11)
     N_CHANNELS = (12, 13, 14, 15)
+    ACTIVE_CHANNELS = V_CHANNELS + I_CHANNELS
 
     _CH_MAPPING = (0, 2, 4, 6, 8, 10, 1, 3, 5, 7, 9, 11, 12, 13, 14, 15)
     _REV_CH_MAPPING = {hw: api for api, hw in enumerate(_CH_MAPPING)}
