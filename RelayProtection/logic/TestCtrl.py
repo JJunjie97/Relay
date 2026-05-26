@@ -75,7 +75,7 @@ class TestCtrl:
                 self._doStop()
                 return
 
-            self.di = 0
+            # self.di = 0
             self.do = 0
             self.state = {ch: {} for ch in HWConfig.ACTIVE_CHANNELS}
             self.nodes = {}
