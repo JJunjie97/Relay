@@ -293,11 +293,11 @@ WebSocket 上报时 **`report` 事件的载荷为 `message.data`**（即 `handle
 | 列 | 来源 |
 |----|------|
 | 序号 | 前端行序 `idx + 1` |
-| 制动电流 Ir | **report** → 点行 `ir`（谐波项目可写 `harm`） |
+| 制动电流 Ir | **report** → 点行 `x`（比率=Ir，谐波=Harm%） |
 | 动作边界(整定) | **点表** `id_boundary`（启动/曲线，不按 report 覆盖） |
 | 动作边界 Id | **report** `y` → 点行 `id_val` |
 | 相对误差 | 前端：`id_boundary` 与 `id_val` |
-| Kzd | 前端：点行 `ir`、`id_val` + 界面 `kzd` |
+| Kzd | 前端：点行 `x`、`id_val` + 界面 `kzd` |
 | I1 / I2 侧电流 | **report** 标量 `i1`、`i2` → 点行（**非**相量数组） |
 
 #### `points[]` 元素字段
@@ -305,7 +305,7 @@ WebSocket 上报时 **`report` 事件的载荷为 `message.data`**（即 `handle
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `id` | `number` | 是 | 与启动包 `points[].id` 一致，用于匹配点表行 |
-| `ir` | `number` | 是 | 制动电流；谐波项目可用 `x` 作同义字段 |
+| `x` | `number` | 是 | 右图横轴坐标（比率=Ir，谐波=Harm%），与启动包 `points[].x` 一致 |
 | `y` | `number` | 是 | 实测动作边界 Id；可用 `id_val` / `idValue` 作别名 |
 | `i1` | `number` | 是 | I1 侧电流（实数） |
 | `i2` | `number` | 是 | I2 侧电流（实数） |
@@ -323,7 +323,7 @@ WebSocket 上报时 **`report` 事件的载荷为 `message.data`**（即 `handle
   "points": [
     {
       "id": 1,
-      "ir": 1.0,
+      "x": 1.0,
       "y": 0.612,
       "i1": 1.2,
       "i2": 1.15
