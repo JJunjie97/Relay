@@ -78,6 +78,77 @@ def compute_6ch(ir: float, id_val: float, payload: Dict[str, Any]) -> List[List[
 
     return result
 
+def _needs_sqrt3(letter: str, correction: str) -> bool:
+    """判断该侧是否需要乘以 √3。
+    如果该侧的联结类型与 phaseCorrection 指定的校正类型匹配，则需要乘 √3。
+    """
+    if correction == "none":
+        return False
+    if correction == "y-side":
+        return letter == "y"
+    if correction == "delta-side":
+        return letter == "d"
+    return False
+
+
+def compute_2i(ir: float, id_val: float, payload: Dict[str, Any]) -> List[List[float]]:
+    """
+    分相差动 (2I) 桥接函数：输入 (ir, id) + payload，输出 2 路电流参数。
+
+    与 compute_6ch 不同：不做 3 相展开，直接输出标量 i1/i2。
+    如果 phaseCorrection 有效，对应侧乘 √3。
+
+    返回:
+        [[i1_amp, i1_angle], [i2_amp, i2_angle]]
+    """
+    # ── 1. 提取参数 ──
+    eq = payload.get("equationSettings", {})
+    prot = payload.get("protectionSettings", {})
+    conn = payload.get("connectionSettings", {})
+
+    id_eq = eq.get("idEquation", "id_sum")
+    ir_eq = eq.get("irEquation", "ir_diff_k")
+    k = eq.get("kFactor", 2.0)
+    kp1 = eq.get("kp1", 1.0)
+    kp2 = eq.get("kp2", 1.0)
+
+    l1_type = prot.get("vectorGroupLetter1", "y")
+    l2_type = prot.get("vectorGroupLetter2", "y")
+    phase_correction = prot.get("phaseCorrection", "none")
+
+    i1_angle = conn.get("i1Angle", 0.0)
+    i2_angle = conn.get("i2Angle", 180.0)
+
+    # ── 2. 方程求解 ──
+    i1_out, i2_out, theta2 = solve(
+        id_val=id_val,
+        ir_val=ir,
+        k=k,
+        kp1=kp1,
+        kp2=kp2,
+        id_eq=id_eq,
+        ir_eq=ir_eq
+    )
+
+    # ── 3. √3 乘数 ──
+    if _needs_sqrt3(l1_type, phase_correction):
+        i1_out *= math.sqrt(3)
+    if _needs_sqrt3(l2_type, phase_correction):
+        i2_out *= math.sqrt(3)
+
+    # ── 4. 输出 [幅值, 相位°] ──
+    # 侧1 相位 = i1Angle (通常 0°)
+    # 侧2 相位 = i2Angle + theta2 (theta2 来自 solve)
+    side2_angle = i2_angle + theta2
+
+    # 归一化到 [-180, 180]
+    side2_angle = ((side2_angle + 180) % 360) - 180
+
+    return [
+        [round(abs(i1_out), 6), round(i1_angle, 4)],
+        [round(abs(i2_out), 6), round(side2_angle, 4)],
+    ]
+
 
 # ── 内置测试 ──
 if __name__ == "__main__":
@@ -125,3 +196,4 @@ if __name__ == "__main__":
     print(f"  Ia: 1.2500 A ∠ 0.00°")
     print(f"  Ix: 0.7500 A ∠ 210.00°")
     print(f"  其余: 0 A")
+
